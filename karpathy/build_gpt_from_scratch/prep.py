@@ -64,7 +64,9 @@ def get_batch(data):
     # this is python list comprehension. for every start index i generate a list of chars starting at i and ending at i + block_size
     # torch.stack then combines the list of tensors into a single tensor
     input_tensor = torch.stack([data[i : i + block_size] for i in start_index_tensor])
-    exptected+_tensor = torch.stack([data[i + 1 : i + block_size + 1] for i in start_index_tensor])
+    exptected_tensor = torch.stack(
+        [data[i + 1 : i + block_size + 1] for i in start_index_tensor]
+    )
     return input_tensor, exptected_tensor
 
 
