@@ -77,3 +77,6 @@ print(input_batch)
 print("targets:")
 print(expected_batch.shape)
 print(expected_batch)
+
+# we are around 22 minutes into the tutorial and he is refering to another video. Need to pause and come back later
+# https://www.youtube.com/watch?v=kCc8FmEb1nY?t=22m0s
