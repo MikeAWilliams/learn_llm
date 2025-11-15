@@ -10,59 +10,109 @@ stoi = {s: i + 1 for i, s in enumerate(chars)}
 stoi["."] = 0
 itos = {i: s for s, i in stoi.items()}
 
-# build the dataset
-block_size = 3  # context length: how many characters do we take to predict the output y
-X, Y = [], []
-for w in words:
-    # print(w)
-    context = [0] * block_size
-    for ch in w + ".":
-        ix = stoi[ch]
-        X.append(context)
-        Y.append(ix)
-        # print("".join(itos[i] for i in context), "->", itos[ix])
-        context = context[1:] + [ix]  # crop and append
+vocabulary_size = len(itos)
+print("vocabulary size", vocabulary_size)
+block_size = 3  # context length: how many characters do we take to predict the next one
 
-X = torch.tensor(X)
-Y = torch.tensor(Y)
+
+def build_dataset(words):
+    X, Y = [], []
+    for w in words:
+
+        # print(w)
+        context = [0] * block_size
+        for ch in w + ".":
+            ix = stoi[ch]
+            X.append(context)
+            Y.append(ix)
+            # print(''.join(itos[i] for i in context), '--->', itos[ix])
+            context = context[1:] + [ix]  # crop and append
+
+    X = torch.tensor(X)
+    Y = torch.tensor(Y)
+    print(X.shape, Y.shape)
+    return X, Y
+
+
+import random
+
+random.seed(42)
+random.shuffle(words)
+n1 = int(0.8 * len(words))
+n2 = int(0.9 * len(words))
+
+Xtr, Ytr = build_dataset(words[:n1])
+Xdev, Ydev = build_dataset(words[n1:n2])
+Xte, Yte = build_dataset(words[n2:])
 
 g = torch.Generator().manual_seed(2147483647)
 # add an embedding layer C in the paper to embed each character into a smaller dimention space
-# in this case each letter will be embedded into a 2 dimention vector
-C = torch.randn((27, 2), generator=g)
+# in this case each letter will be embedded into a 10 dimention vector
+embed_dim = 10
+C = torch.randn((vocabulary_size, embed_dim), generator=g)
 # first layer of the network
 # notice block size * 2 because each letter is now represented by a 2 dimention vector after C
 # 100 is the number of neurons in the hidden layer
-W1 = torch.randn((block_size * 2, 100), generator=g)
-b1 = torch.randn(100, generator=g)
+hidden_dim = 200
+W1 = torch.randn((block_size * embed_dim, hidden_dim), generator=g)
+b1 = torch.randn(hidden_dim, generator=g)
 # second layer of the network
 # from the 101 neurons in the hidden layer to 27 output classes (characters)
-W2 = torch.randn((100, 27), generator=g)
-b2 = torch.randn(27, generator=g)
+W2 = torch.randn((hidden_dim, vocabulary_size), generator=g)
+b2 = torch.randn(vocabulary_size, generator=g)
 parameters = [C, W1, b1, W2, b2]
 print(f"{sum(p.nelement() for p in parameters)} parameters")
 
 for p in parameters:
     p.requires_grad = True
 
-for _ in range(1000):
+print("training...")
+batch_size = 32
+for i in range(200000):
     # minibatch construct
-    ix = torch.randint(0, X.shape[0], (32,), generator=g)
-    emb = C[X[ix]]  # not X but a batch X[ix]
+    ix = torch.randint(0, Xtr.shape[0], (batch_size,), generator=g)
+    emb = C[Xtr[ix]]  # not X but a batch X[ix]
     # view reshapes the embeding tensor to allign with the first layer weight matrix W1. Equivelent to concatenating the 2D embeddings
-    h = torch.tanh(emb.view(-1, 6) @ W1 + b1)
+    h = torch.tanh(emb.view(-1, block_size * embed_dim) @ W1 + b1)
     logits = h @ W2 + b2
     # counts = logits.exp()
     # probs = counts / counts.sum(1, keepdim=True)
     # loss = -probs[torch.arange(32), Y].log().mean()
     # cross entropy is equivelent to the above 3 lines
-    loss = F.cross_entropy(logits, torch.tensor(Y[ix]))
-    print(loss.item())
+    loss = F.cross_entropy(logits, Ytr[ix])
+    if i % 10000 == 0:
+        print(f"% complete {i/200000}: loss {loss.item()}")
+    # print(loss.item())
     # backward pass
     for p in parameters:
         p.grad = None
     loss.backward()
+    lr = 0.1 if i < 100000 else 0.01
     for p in parameters:
-        p.data += -0.1 * p.grad
+        p.data += -lr * p.grad
 
-# continue at https://youtu.be/TCH_1BHY58I?si=eJ-tQeieGicjOeFk&t=2794
+# evaluate the loss on the dev set
+emb = C[Xdev]
+h = torch.tanh(emb.view(-1, block_size * embed_dim) @ W1 + b1)
+logits = h @ W2 + b2
+loss = F.cross_entropy(logits, Ydev)
+print("dev loss:", loss.item())
+
+# sample from the model
+g = torch.Generator().manual_seed(2147483647 + 10)
+
+for _ in range(20):
+    out = []
+    context = [0] * block_size  # initialize with all ...
+    while True:
+        emb = C[torch.tensor([context])]  # (1,block_size,d)
+        h = torch.tanh(emb.view(1, -1) @ W1 + b1)
+        logits = h @ W2 + b2
+        probs = F.softmax(logits, dim=1)
+        ix = torch.multinomial(probs, num_samples=1, generator=g).item()
+        context = context[1:] + [ix]
+        out.append(ix)
+        if ix == 0:
+            break
+
+    print("".join(itos[i] for i in out))
