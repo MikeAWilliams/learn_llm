@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import time
+import random
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if torch.cuda.is_available():
@@ -41,8 +42,6 @@ def build_dataset(words):
     print(X.shape, Y.shape)
     return X, Y
 
-
-import random
 
 random.seed(42)
 random.shuffle(words)

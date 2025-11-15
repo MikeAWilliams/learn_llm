@@ -16,3 +16,6 @@ Multi-layer Preception (MLP)
 https://youtu.be/TCH_1BHY58I?si=P4foANniO7qHT_EB:w
 
 Consider reading "A Neural Probabilistic Language Model" Yoshua Bengo 2003 https://www.jmlr.org/papers/volume3/bengio03a/bengio03a.pdf
+
+02_mlp.py is my reproduction of Andreje's notebook
+02_mlp_as_module.py adapts the raw model into a nn.Module
