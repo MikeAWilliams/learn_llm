@@ -1,6 +1,8 @@
 # build up a character level tokenizer
 
 import torch
+import torch.nn as nn
+from torch.nn import functional as F
 
 with open("input.txt", "r", encoding="utf-8") as file:
     text = file.read()
@@ -53,11 +55,10 @@ for t in range(block_size):
     print(f"when input is {context_input.tolist()} the target: {target}")
 
 torch.manual_seed(1337)
-batch_size = 4  # how many independent sequences will we process in parallel
 block_size = 8  # what is the maximum context length for predictions
 
 
-def get_batch(data):
+def get_batch(data, batch_size):
     # a tensor of size batch_size of random starting indices for the sequences
     # don't allow larger than len(data) - block_size so that there is room for the rest of the sequence
     start_index_tensor = torch.randint(len(data) - block_size, (batch_size,))
@@ -70,13 +71,81 @@ def get_batch(data):
     return input_tensor, exptected_tensor
 
 
-input_batch, expected_batch = get_batch(train_data)
+batch_size = 4  # how many independent sequences will we process in parallel
+xb, yb = get_batch(train_data, batch_size)
 print("inputs:")
-print(input_batch.shape)
-print(input_batch)
+print(xb.shape)
+print(xb)
 print("targets:")
-print(expected_batch.shape)
-print(expected_batch)
+print(yb.shape)
+print(yb)
 
-# we are around 22 minutes into the tutorial and he is refering to another video. Need to pause and come back later
-# https://www.youtube.com/watch?v=kCc8FmEb1nY?t=22m0s
+torch.manual_seed(1337)
+
+
+class BigramLanguageModeler(nn.Module):
+    def __init__(self, vocab_size):
+        super().__init__()
+        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+
+    def forward(self, idx, targets=None):
+        # B is batch size, t is block size, C is vocab size
+        logits = self.token_embedding_table(idx)  # (B, T, C)
+        if targets is None:
+            return logits, None
+
+        B, T, C = logits.shape
+        # change logits and targets to 2d
+        logits = logits.view(B * T, C)
+        targets = targets.view(B * T)
+        loss = F.cross_entropy(logits, targets)
+
+        return logits, loss
+
+    def generate(self, idx, max_new_tokens):
+        # idx is (B, T) array of indices in the current context
+        for _ in range(max_new_tokens):
+            # get the predictions
+            logits, _ = self(idx)
+            # focus only on the last time step
+            logits = logits[:, -1, :]  # (B, C)
+            # apply softmax to get probabilities
+            probs = F.softmax(logits, dim=-1)  # (B, C)
+            # sample from the distribution
+            next_idx = torch.multinomial(probs, num_samples=1)  # (B, 1)
+            # append sampled index to the running sequence
+            idx = torch.cat((idx, next_idx), dim=1)  # (B, T+1)
+        return idx
+
+
+m = BigramLanguageModeler(vocab_size)
+logits, loss = m(xb, yb)
+print("logits shape:", logits.shape)
+print("loss:", loss.item())
+
+# generate from the model
+idx = torch.zeros((1, 1), dtype=torch.long)
+print(f"initial input is {decode(idx[0].tolist())}")  # \n
+# we didn't train the model yet so we expect nonsense
+print(decode(m.generate(idx, max_new_tokens=100)[0].tolist()))
+
+# train it
+
+# not using gradient decent
+optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
+
+print("\ntraining...")
+batch_size = 32
+for steps in range(10000):
+    xb, yb = get_batch(train_data, batch_size)
+
+    logits, loss = m(xb, yb)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+
+print("loss after training")
+print(loss.item())
+print("generating from trained model")
+idx = torch.zeros((1, 1), dtype=torch.long)
+print(decode(m.generate(idx, max_new_tokens=400)[0].tolist()))
