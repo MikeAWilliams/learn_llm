@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 
 torch.manual_seed(1337)
 B, T, C = 4, 8, 2  # batch size, time steps, channels
@@ -64,3 +65,12 @@ print("xbow allclose xbow2:", torch.allclose(xbow, xbow2))
 print("xbow[0, 0]:", xbow[0, 0])
 print("xbow2[0, 0]:", xbow2[0, 0])
 print("difference:", torch.abs(xbow - xbow2).max())
+
+# use softmax to do the same
+tril = torch.tril(torch.ones(T, T))
+wei = torch.zeros(T, T)
+wei = wei.masked_fill(tril == 0, float("-inf"))
+wei = F.softmax(wei, dim=-1)
+xbow3 = wei @ x
+print("xbow allclose xbow3:", torch.allclose(xbow, xbow3))
+print("xbow2 allclose xbow3:", torch.allclose(xbow2, xbow3))
