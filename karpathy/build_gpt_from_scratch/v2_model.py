@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import time
 
 # hyperparameters
 batch_size = 64  # how many independent sequences will we process in parallel?
@@ -195,13 +196,22 @@ m = model.to(device)
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+print("Training...")
+start_time = time.time()
 for iter in range(max_iters):
 
     # every once in a while evaluate the loss on train and val sets
     if iter % eval_interval == 0:
         losses = estimate_loss()
+        
+        elapsed_time = time.time() - start_time
+        avg_time_per_step = elapsed_time / (iter + 1)
+        estimated_total_time = avg_time_per_step * max_iters
+        remaining_time = estimated_total_time - elapsed_time
+        
         print(
-            f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}"
+            f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f} | "
+            f"avg: {avg_time_per_step:.3f}s/step | est. total: {estimated_total_time/60:.1f}min | remaining: {remaining_time/60:.1f}min"
         )
 
     # sample a batch of data
@@ -212,6 +222,10 @@ for iter in range(max_iters):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
+
+
+print(f"Training done. Time taken: {time.time() - start_time:.2f} seconds")
+print("Generating from the model...")
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
