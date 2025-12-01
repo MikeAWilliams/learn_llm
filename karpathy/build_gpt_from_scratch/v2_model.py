@@ -87,7 +87,7 @@ class Head(nn.Module):
         k = self.key(x) # (B,T,C)
         q = self.query(x) # (B,T,C)
         v = self.value(x) # (B,T,C)
-        wei = q @ k.transpose(-2, -1) * C**-0.5 # (B,T,T)
+        wei = q @ k.transpose(-2, -1) * k.shape[-1]**-0.5 # (B,T,T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B,T,T)
         wei = F.softmax(wei, dim=-1) # (B,T,T)
         wei = self.dropout(wei)
@@ -99,7 +99,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(n_embd, n_embd)
+        self.proj = nn.Linear(head_size * num_heads, n_embd)
         self.dropout = nn.Dropout(dropout)
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
@@ -149,6 +149,15 @@ class BigramLanguageModel(nn.Module):
         self.blocks = nn.Sequential(*[Block(n_embd, n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd) # final layer normalization
         self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.apply(self._init_weights)
+    
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
@@ -192,6 +201,7 @@ class BigramLanguageModel(nn.Module):
 
 model = BigramLanguageModel(vocab_size)
 m = model.to(device)
+print(sum(p.numel() for p in m.parameters())/1e6, "M parameters")
 
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
