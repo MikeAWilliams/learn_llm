@@ -128,13 +128,14 @@ gpt2pat = re.compile(
 )
 
 print(re.findall(gpt2pat, "Hello've world123 how's are you!!!?"))
-## % use the official gpt2 tokenizer published by open ai
+
+# %% use the official gpt tokenizer published by open ai
 import tiktoken
 
-# GPT-2 (does not merge spaces)
+# GPT-2 does not merge spaces
 enc = tiktoken.get_encoding("gpt2")
 print(enc.encode("    hello world!!!"))
 
-# GPT-4 (merges spaces)
+# GPT-4 encoding is named cl100k_base and merges spaces
 enc = tiktoken.get_encoding("cl100k_base")
 print(enc.encode("    hello world!!!"))
