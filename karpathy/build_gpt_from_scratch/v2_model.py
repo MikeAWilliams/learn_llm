@@ -1,10 +1,11 @@
 # need to work on the bigram model to give it self attention
 # return to video at https://youtu.be/kCc8FmEb1nY?si=Q7ebFFY59urDh95q&t=3513
 
+import time
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-import time
 
 # hyperparameters
 batch_size = 64  # how many independent sequences will we process in parallel?
@@ -12,7 +13,12 @@ block_size = 256  # what is the maximum context length for predictions?
 max_iters = 5000
 eval_interval = 500
 learning_rate = 3e-4
-device = "cuda" if torch.cuda.is_available() else "cpu"
+if torch.cuda.is_available():
+    device = "cuda"
+elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+    device = "mps"
+else:
+    device = "cpu"
 print("using device:", device)
 eval_iters = 200
 n_embd = 384
@@ -39,6 +45,8 @@ encode = lambda s: [
 decode = lambda l: "".join(
     [itos[i] for i in l]
 )  # decoder: take a list of integers, output a string
+
+print(f"vocab_size:{vocab_size}, character_zero:`{decode([0])}`")
 
 # Train and test splits
 data = torch.tensor(encode(text), dtype=torch.long)
@@ -72,59 +80,69 @@ def estimate_loss():
     model.train()
     return out
 
+
 class Head(nn.Module):
     """One head of self-attention"""
+
     def __init__(self, head_size):
         super().__init__()
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+        self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        B,T,C = x.shape
-        k = self.key(x) # (B,T,C)
-        q = self.query(x) # (B,T,C)
-        v = self.value(x) # (B,T,C)
-        wei = q @ k.transpose(-2, -1) * k.shape[-1]**-0.5 # (B,T,T)
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B,T,T)
-        wei = F.softmax(wei, dim=-1) # (B,T,T)
+        B, T, C = x.shape
+        k = self.key(x)  # (B,T,C)
+        q = self.query(x)  # (B,T,C)
+        v = self.value(x)  # (B,T,C)
+        wei = q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5  # (B,T,T)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B,T,T)
+        wei = F.softmax(wei, dim=-1)  # (B,T,T)
         wei = self.dropout(wei)
-        out = wei @ v # (B,T,C)
+        out = wei @ v  # (B,T,C)
         return out
+
 
 class MultiHeadAttention(nn.Module):
     """Multiple heads of self-attention in parallel"""
+
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(head_size * num_heads, n_embd)
         self.dropout = nn.Dropout(dropout)
+
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         out = self.proj(out)
         out = self.dropout(out)
         return out
 
+
 class FeedForward(nn.Module):
     """A simple linear layer followed by non-linearity"""
+
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embd, 4*n_embd),
+            nn.Linear(n_embd, 4 * n_embd),
             nn.ReLU(),
-            nn.Linear(4*n_embd, n_embd),
+            nn.Linear(4 * n_embd, n_embd),
             nn.Dropout(dropout),
         )
+
     def forward(self, x):
         return self.net(x)
 
+
 class Block(nn.Module):
     """Transformer block: communication followed by computation"""
+
     def __init__(self, n_embd, n_head):
         super().__init__()
-        head_size = n_embd//n_head
+        head_size = n_embd // n_head
         self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = FeedForward(n_embd)
         self.ln1 = nn.LayerNorm(n_embd)
@@ -139,7 +157,6 @@ class Block(nn.Module):
 
 
 class BigramLanguageModel(nn.Module):
-
     def __init__(self, vocab_size):
         super().__init__()
         # each token directly reads off the logits for the next token from a lookup table
@@ -147,10 +164,10 @@ class BigramLanguageModel(nn.Module):
         # position embedding table is a second embedding by position. Eg it will associate tokens at a given index together
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(*[Block(n_embd, n_head) for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embd) # final layer normalization
+        self.ln_f = nn.LayerNorm(n_embd)  # final layer normalization
         self.lm_head = nn.Linear(n_embd, vocab_size)
         self.apply(self._init_weights)
-    
+
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -164,10 +181,10 @@ class BigramLanguageModel(nn.Module):
 
         # idx and targets are both (B,T) tensor of integers
         tok_emb = self.token_embedding_table(idx)  # (B,T,C)
-        pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
-        x = tok_emb + pos_emb # (B,T,C)
-        x = self.blocks(x) # (B,T,C)
-        x = self.ln_f(x) # (B,T,C)
+        pos_emb = self.position_embedding_table(torch.arange(T, device=device))  # (T,C)
+        x = tok_emb + pos_emb  # (B,T,C)
+        x = self.blocks(x)  # (B,T,C)
+        x = self.ln_f(x)  # (B,T,C)
         logits = self.lm_head(x)  # (B,T,vocab_size)
 
         if targets is None:
@@ -201,7 +218,7 @@ class BigramLanguageModel(nn.Module):
 
 model = BigramLanguageModel(vocab_size)
 m = model.to(device)
-print(sum(p.numel() for p in m.parameters())/1e6, "M parameters")
+print(sum(p.numel() for p in m.parameters()) / 1e6, "M parameters")
 
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -209,19 +226,18 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 print("Training...")
 start_time = time.time()
 for iter in range(max_iters):
-
     # every once in a while evaluate the loss on train and val sets
     if iter % eval_interval == 0:
         losses = estimate_loss()
-        
+
         elapsed_time = time.time() - start_time
         avg_time_per_step = elapsed_time / (iter + 1)
         estimated_total_time = avg_time_per_step * max_iters
         remaining_time = estimated_total_time - elapsed_time
-        
+
         print(
             f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f} | "
-            f"avg: {avg_time_per_step:.3f}s/step | est. total: {estimated_total_time/60:.1f}min | remaining: {remaining_time/60:.1f}min"
+            f"avg: {avg_time_per_step:.3f}s/step | est. total: {estimated_total_time / 60:.1f}min | remaining: {remaining_time / 60:.1f}min"
         )
 
     # sample a batch of data
