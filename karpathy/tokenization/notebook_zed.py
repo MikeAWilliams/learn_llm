@@ -110,11 +110,31 @@ input = "hello world!"
 result = encode(input)
 print(len(input), list(input.encode("utf-8")))
 print(len(result), result)
-# %% now explore optimizations fromt he gpt 2 encoding
+# %% now explore optimizations from the gpt 2 encoding
 import regex as re
 
+# splits out a bunch of things
+#    contractions
+#    leading space followed by letters
+#    numbers
+#    punctuation and emoji
+#    trailing white space
+#    general spaces
+# GPT 2 and 3 use this to split all input up into seperate blocks befoere tokenization to avoid any of these cases being tokenized together
+# Then it concatenates the token lists togehter and feeds it to the model
+# notice that this perfers to put spaces before the tokens eg "you are" splits to "you", " are"
 gpt2pat = re.compile(
     r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 )
 
 print(re.findall(gpt2pat, "Hello've world123 how's are you!!!?"))
+## % use the official gpt2 tokenizer published by open ai
+import tiktoken
+
+# GPT-2 (does not merge spaces)
+enc = tiktoken.get_encoding("gpt2")
+print(enc.encode("    hello world!!!"))
+
+# GPT-4 (merges spaces)
+enc = tiktoken.get_encoding("cl100k_base")
+print(enc.encode("    hello world!!!"))
