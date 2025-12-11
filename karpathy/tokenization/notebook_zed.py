@@ -76,8 +76,45 @@ for (p0, p1), idx in merges.items():
 
 def decode(ids):
     tokens = b"".join(vocab[idx] for idx in ids)
+    # the llm may not generate valid utf8 so errors="replace" will insert a unicode ?
     text = tokens.decode("utf-8", errors="replace")
     return text
 
 
-# %% Cell 7
+# %% encode
+
+# my most_common_byte_pair function was kind of clever but isn't useful here because I need to get all the possible merges not just the most common
+# use Karpathy's get_stats
+
+
+def get_stats(ids):
+    counts = {}
+    for pair in zip(ids, ids[1:]):
+        counts[pair] = counts.get(pair, 0) + 1
+    return counts
+
+
+def encode(text):
+    tokens = list(text.encode("utf-8"))
+    while len(tokens >= 2):
+        stats = get_stats(tokens)
+        pair = min(stats, key=lambda p: merges.get(p, float("inf")))
+        if pair not in merges:
+            break  # didn't find a merge
+        idx = merges[pair]
+        tokens = merge(tokens, pair, idx)
+    return tokens
+
+
+input = "hello world!"
+result = encode(input)
+print(len(input), list(input.encode("utf-8")))
+print(len(result), result)
+# %% now explore optimizations fromt he gpt 2 encoding
+import regex as re
+
+gpt2pat = re.compile(
+    r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+)
+
+print(re.findall(gpt2pat, "Hello've world123 how's are you!!!?"))
