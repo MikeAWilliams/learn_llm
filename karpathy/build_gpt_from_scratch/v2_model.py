@@ -46,7 +46,7 @@ decode = lambda l: "".join(
     [itos[i] for i in l]
 )  # decoder: take a list of integers, output a string
 
-print(f"vocab_size:{vocab_size}, character_zero:`{decode([0])}`")
+print(f"vocab_size:{vocab_size}, chars:`{chars}`")
 
 # Train and test splits
 data = torch.tensor(encode(text), dtype=torch.long)
