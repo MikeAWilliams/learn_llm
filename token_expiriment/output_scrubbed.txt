@@ -6,7 +6,7 @@ def scrub_data(text):
     return "".join(c for c in text if c in allowed_chars)
 
 vocab_size: 29, chars: ['\n', ' ', '.', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
-Time taken: 2650.24 seconds = 44.2 minutes
+Time taken on m4 mac pro: 2650.24 seconds = 44.2 minutes
 =============================== Generated text ============================
 
 o standing is the truth to civil him.
