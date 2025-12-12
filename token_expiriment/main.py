@@ -187,6 +187,7 @@ def run_scenario(
 
 def scenario_base():
     """Base scenario: raw character-level encoding with no preprocessing"""
+    print("\n" + "*" * 60, "   Base Scenario   ", "*" * 60)
     run_scenario(
         scenario_name="Base (Raw Character-Level)",
         input_file="input.txt",
@@ -196,6 +197,7 @@ def scenario_base():
 
 def scenario_scrubbed():
     """Scrubbed scenario: lowercase, no newlines, only periods"""
+    print("\n" + "*" * 60, "   Scrubbed Scenario   ", "*" * 60)
     run_scenario(
         scenario_name="Scrubbed (Lowercase, No Newlines, Period Only)",
         input_file="input.txt",
