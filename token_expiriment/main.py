@@ -38,6 +38,14 @@ def scrub_data(text):
     return "".join(c for c in text if c in allowed_chars)
 
 
+def scrub_minimal(text):
+    """Lowercase, remove newlines, keep only letters, spaces, and periods"""
+    text = text.lower()
+    text = text.replace("\n", " ")
+    allowed_chars = set("abcdefghijklmnopqrstuvwxyz .")
+    return "".join(c for c in text if c in allowed_chars)
+
+
 def prepare_data(text, train_split=0.9):
     chars, vocab_size, stoi, itos = create_vocabulary(text)
 
@@ -186,7 +194,18 @@ def scenario_base():
     )
 
 
+def scenario_scrubbed():
+    """Scrubbed scenario: lowercase, no newlines, only periods"""
+    run_scenario(
+        scenario_name="Scrubbed (Lowercase, No Newlines, Period Only)",
+        input_file="input.txt",
+        output_file="output_scrubbed.txt",
+        data_scrubber=scrub_minimal,
+    )
+
+
 def main():
+    scenario_scrubbed()
     scenario_base()
 
 
