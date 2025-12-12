@@ -136,7 +136,7 @@ def run_scenario(
         text = tokenizer(text)
 
     train_data, val_data, vocab_info = prepare_data(text)
-    print(f"vocab_size: {vocab_info['vocab_size']}")
+    print(f"vocab_size: {vocab_info['vocab_size']}, chars: {vocab_info['chars']}")
 
     print("Initializing model...")
     model = BigramLanguageModel(
