@@ -1,5 +1,4 @@
 import time
-import token
 
 import torch
 
@@ -12,6 +11,7 @@ from library import (
     get_batch,
     get_device,
 )
+from tokenizer import CharBPETokenizer
 
 # Hyperparameters
 BATCH_SIZE = 64
@@ -205,9 +205,67 @@ def scenario_scrubbed():
     )
 
 
+def experiment_tokenizer():
+    """Experiment with BPE tokenizer to show raw vs tokenized output"""
+    print("\n" + "=" * 80)
+    print("TOKENIZER EXPERIMENT")
+    print("=" * 80)
+
+    print("\nLoading data...")
+    text = load_data("input.txt")
+
+    print("\n" + "=" * 80)
+    print("RAW CHARACTER-LEVEL ENCODING")
+    print("=" * 80)
+    chars, vocab_size, stoi, itos = create_vocabulary(text)
+    raw_encoded = encode(text, stoi)
+
+    print(f"\nVocabulary size: {vocab_size}")
+    print(f"Encoded length: {len(raw_encoded)} tokens")
+
+    print("\n" + "=" * 80)
+    print("BPE TOKENIZATION")
+    print("=" * 80)
+
+    tokenizer = CharBPETokenizer()
+    new_tokens = 500
+    target_vocab = vocab_size + new_tokens
+
+    print(f"\nTraining BPE tokenizer (target vocab size: {target_vocab})...")
+    print("-" * 80)
+    tokenizer.train(text, target_vocab)
+
+    print("\n" + "-" * 80)
+    print("Encoding sample with BPE...")
+    bpe_encoded = tokenizer.encode(text)
+
+    print(f"\nBPE encoded length: {len(bpe_encoded)} tokens")
+    print(f"Compression ratio: {len(raw_encoded) / len(bpe_encoded):.2f}x")
+
+    bpe_decoded = tokenizer.decode(bpe_encoded)
+
+    print("\n" + "-" * 80)
+    if text == bpe_decoded:
+        print("✓ Round-trip successful: original == decoded")
+    else:
+        print("✗ Round-trip failed: original != decoded")
+
+    print("\n" + "=" * 80)
+    print("COMPLETE VOCABULARY")
+    print("=" * 80)
+    vocab_info = tokenizer.get_vocab_info()
+    print(f"\nBase characters: {len(vocab_info['base_chars'])}")
+    print(f"Number of merges: {vocab_info['num_merges']}")
+    print(f"Final vocabulary size: {vocab_info['vocab_size']}")
+
+    all_tokens = [vocab_info["vocab"][i] for i in sorted(vocab_info["vocab"].keys())]
+    print(f"\nAll tokens: {all_tokens}")
+
+    print("\n" + "=" * 80)
+
+
 def main():
-    scenario_scrubbed()
-    scenario_base()
+    experiment_tokenizer()
 
 
 if __name__ == "__main__":
