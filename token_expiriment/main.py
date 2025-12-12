@@ -39,10 +39,9 @@ def scrub_data(text):
 
 
 def scrub_minimal(text):
-    """Lowercase, remove newlines, keep only letters, spaces, and periods"""
+    """Lowercase, keep only letters, spaces, periods, and newlines"""
     text = text.lower()
-    text = text.replace("\n", " ")
-    allowed_chars = set("abcdefghijklmnopqrstuvwxyz .")
+    allowed_chars = set("abcdefghijklmnopqrstuvwxyz .\n")
     return "".join(c for c in text if c in allowed_chars)
 
 
