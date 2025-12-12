@@ -26,3 +26,86 @@ Based on experiments with the full input.txt dataset (base vocabulary: 65 charac
 | 4000       | 4065             | 3.81x             | 18                     |
 
 ![Graph of the abovee](./shakespeare_tokenization.png)
+
+## Scenarios
+
+here are some results
+
+### base
+Total vocab size is 65
+Time taken on m4 mac pro 43.9 minutes
+
+#### result text
+
+a present of alliberd.
+
+SICINIUS:
+Why, the city I beggars will cribe the strength,
+And bury threefollowers before the rest.
+
+Senator:
+Ah, how above you this senate marchy in prison!
+The more shall make my feeb met?
+The lady presservation'd and on thement,
+And so your very trick my house at home,
+The widows itself that I'ld show.
+Would that's that? it was even like it faint, I sir,
+The entreats of his deeds, contend to const
+In the sorps that dieth self most under-spreech'd
+Up; and ere he did no baniss'd the ground;
+But once his friends to redeep him there do none.
+
+CLIFFORDIFAD:
+Off! What maidst thou me! look on on that way
+Might bind revenge, for thy cold father, as the
+meeting is more than where things love me, thou so art
+As too for my head and thy wits, and do so,
+And bid him meet here signorant.
+
+First Conspirator:
+And what means give Katharina my page?
+Enjoy away what this was the noble heart?
+I talk no grant that would our tent to know
+The three, nother's King was alone,
+Put upo
+
+### scrubbed - reduced character set
+Total vocab size is 29
+allowed_chars = set("abcdefghijklmnopqrstuvwxyz .\n")
+Time taken on m4 mac pro 44.2 minutes
+
+#### result text
+
+o standing is the truth to civil him.
+
+king henry vi
+then most vicious sreat torchery today
+he is great enemies lost the sun of york.
+
+york
+but farewell my lord ill fear unto the ground
+the trumpets set sorrow his revengement
+for shame us i cannot be truth on.
+
+northumberland
+ross
+i will tell the appear as i hear thee
+she runs again
+that makes me not you say pity fight
+she hath made them shame for scoldiers and
+the one day ever had alike althought
+is one then by that ratcliff dost thou
+even the cause of the death is death
+when thinking balm his face against whave
+by his poison clifford did spent of mind.
+thus thou ish of heavy can life
+as make want there corpse against thy fair.
+is nothing but the maidships of soyverigone
+that yetling to the deet will not stay
+a called trusty. comes therefore is foread
+and i know it is english.
+it now here urse whos name gentlement
+thy mislet prefian to come to my just true
+to please that word it with do i think
+should a prison out the sighty deep
+to e
