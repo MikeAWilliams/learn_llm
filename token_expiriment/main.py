@@ -50,7 +50,7 @@ def prepare_data(text, train_split=0.9, custom_tokenizer=None):
         # Use custom tokenizer (e.g., BPE)
         encoded = custom_tokenizer.encode(text)
         data = torch.tensor(encoded, dtype=torch.long)
-        
+
         vocab_info = {
             "chars": list(custom_tokenizer.vocab.values()),
             "vocab_size": custom_tokenizer.vocab_size,
@@ -62,14 +62,14 @@ def prepare_data(text, train_split=0.9, custom_tokenizer=None):
         # Use character-level encoding
         chars, vocab_size, stoi, itos = create_vocabulary(text)
         data = torch.tensor(encode(text, stoi), dtype=torch.long)
-        
+
         vocab_info = {
             "chars": chars,
             "vocab_size": vocab_size,
             "stoi": stoi,
             "itos": itos,
         }
-    
+
     n = int(train_split * len(data))
     train_data = data[:n]
     val_data = data[n:]
@@ -151,7 +151,9 @@ def run_scenario(
         print("Scrubbing data...")
         text = data_scrubber(text)
 
-    train_data, val_data, vocab_info = prepare_data(text, custom_tokenizer=custom_tokenizer)
+    train_data, val_data, vocab_info = prepare_data(
+        text, custom_tokenizer=custom_tokenizer
+    )
     print(f"vocab_size: {vocab_info['vocab_size']}")
 
     print("Initializing model...")
@@ -218,23 +220,23 @@ def scenario_scrubbed():
 def scenario_bpe(num_merges=100):
     """BPE tokenization scenario with configurable merge count"""
     print("\n" + "*" * 60, f"   BPE Scenario ({num_merges} merges)   ", "*" * 60)
-    
+
     # Load data to train tokenizer
     text = load_data("input.txt")
-    
+
     # Get base vocabulary size
     base_chars = sorted(set(text))
     base_vocab_size = len(base_chars)
     target_vocab_size = base_vocab_size + num_merges
-    
+
     print(f"Base vocabulary size: {base_vocab_size}")
     print(f"Target vocabulary size: {target_vocab_size} ({num_merges} merges)")
-    
+
     # Train BPE tokenizer
     print("Training BPE tokenizer...")
     bpe_tokenizer = CharBPETokenizer()
     bpe_tokenizer.train(text, target_vocab_size)
-    
+
     # Run scenario with BPE tokenizer
     run_scenario(
         scenario_name=f"BPE Tokenization ({num_merges} new tokens)",
@@ -304,7 +306,7 @@ def experiment_tokenizer():
 
 
 def main():
-    scenario_bpe(num_merges=100)
+    scenario_bpe(num_merges=2000)
 
 
 if __name__ == "__main__":
