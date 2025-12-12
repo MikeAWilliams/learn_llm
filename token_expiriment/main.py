@@ -45,20 +45,34 @@ def scrub_minimal(text):
     return "".join(c for c in text if c in allowed_chars)
 
 
-def prepare_data(text, train_split=0.9):
-    chars, vocab_size, stoi, itos = create_vocabulary(text)
-
-    data = torch.tensor(encode(text, stoi), dtype=torch.long)
+def prepare_data(text, train_split=0.9, custom_tokenizer=None):
+    if custom_tokenizer:
+        # Use custom tokenizer (e.g., BPE)
+        encoded = custom_tokenizer.encode(text)
+        data = torch.tensor(encoded, dtype=torch.long)
+        
+        vocab_info = {
+            "chars": list(custom_tokenizer.vocab.values()),
+            "vocab_size": custom_tokenizer.vocab_size,
+            "stoi": {custom_tokenizer.vocab[i]: i for i in custom_tokenizer.vocab},
+            "itos": custom_tokenizer.vocab,
+            "tokenizer": custom_tokenizer,
+        }
+    else:
+        # Use character-level encoding
+        chars, vocab_size, stoi, itos = create_vocabulary(text)
+        data = torch.tensor(encode(text, stoi), dtype=torch.long)
+        
+        vocab_info = {
+            "chars": chars,
+            "vocab_size": vocab_size,
+            "stoi": stoi,
+            "itos": itos,
+        }
+    
     n = int(train_split * len(data))
     train_data = data[:n]
     val_data = data[n:]
-
-    vocab_info = {
-        "chars": chars,
-        "vocab_size": vocab_size,
-        "stoi": stoi,
-        "itos": itos,
-    }
 
     return train_data, val_data, vocab_info
 
@@ -121,8 +135,7 @@ def run_scenario(
     input_file,
     output_file,
     data_scrubber=None,
-    tokenizer=None,
-    detokenizer=None,
+    custom_tokenizer=None,
 ):
     print(f"Running Scenario: {scenario_name}")
 
@@ -138,12 +151,8 @@ def run_scenario(
         print("Scrubbing data...")
         text = data_scrubber(text)
 
-    if tokenizer:
-        print("Tokenizing data...")
-        text = tokenizer(text)
-
-    train_data, val_data, vocab_info = prepare_data(text)
-    print(f"vocab_size: {vocab_info['vocab_size']}, chars: {vocab_info['chars']}")
+    train_data, val_data, vocab_info = prepare_data(text, custom_tokenizer=custom_tokenizer)
+    print(f"vocab_size: {vocab_info['vocab_size']}")
 
     print("Initializing model...")
     model = BigramLanguageModel(
@@ -167,11 +176,12 @@ def run_scenario(
     train_model(model, optimizer, train_data, val_data, device)
 
     print("Generating from the model...")
-    generated_text = generate_text(model, vocab_info["itos"], device, 1000)
-
-    if detokenizer:
-        print("Detokenizing mode...")
-        generated_text = detokenizer(generate_text)
+    if custom_tokenizer:
+        context = torch.zeros((1, 1), dtype=torch.long, device=device)
+        generated_indices = model.generate(context, max_new_tokens=1000)[0].tolist()
+        generated_text = custom_tokenizer.decode(generated_indices)
+    else:
+        generated_text = generate_text(model, vocab_info["itos"], device, 1000)
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(generated_text)
@@ -202,6 +212,35 @@ def scenario_scrubbed():
         input_file="input.txt",
         output_file="output_scrubbed.txt",
         data_scrubber=scrub_minimal,
+    )
+
+
+def scenario_bpe(num_merges=100):
+    """BPE tokenization scenario with configurable merge count"""
+    print("\n" + "*" * 60, f"   BPE Scenario ({num_merges} merges)   ", "*" * 60)
+    
+    # Load data to train tokenizer
+    text = load_data("input.txt")
+    
+    # Get base vocabulary size
+    base_chars = sorted(set(text))
+    base_vocab_size = len(base_chars)
+    target_vocab_size = base_vocab_size + num_merges
+    
+    print(f"Base vocabulary size: {base_vocab_size}")
+    print(f"Target vocabulary size: {target_vocab_size} ({num_merges} merges)")
+    
+    # Train BPE tokenizer
+    print("Training BPE tokenizer...")
+    bpe_tokenizer = CharBPETokenizer()
+    bpe_tokenizer.train(text, target_vocab_size)
+    
+    # Run scenario with BPE tokenizer
+    run_scenario(
+        scenario_name=f"BPE Tokenization ({num_merges} new tokens)",
+        input_file="input.txt",
+        output_file=f"output_bpe_{num_merges}.txt",
+        custom_tokenizer=bpe_tokenizer,
     )
 
 
@@ -265,7 +304,7 @@ def experiment_tokenizer():
 
 
 def main():
-    experiment_tokenizer()
+    scenario_bpe(num_merges=100)
 
 
 if __name__ == "__main__":
