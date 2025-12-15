@@ -2,6 +2,7 @@
 # %% import from hugging face
 from ast import increment_lineno
 
+from PIL.ImageFont import MAX_STRING_LENGTH
 from transformers import GPT2LMHeadModel
 
 # %% explore the shape of the model
@@ -21,3 +22,17 @@ import matplotlib.pyplot as plt
 # %matplotlib inline
 
 plt.imshow(sd_hf["transformer.wpe.weight"], cmap="gray")
+# %% look at a couple of columns
+# for a couple of different embedding dims (150, 200, 250) plot how it changes with position
+plt.plot(sd_hf["transformer.wpe.weight"][:, 150])
+plt.plot(sd_hf["transformer.wpe.weight"][:, 200])
+plt.plot(sd_hf["transformer.wpe.weight"][:, 250])
+# %% look at a couple of rows
+# for the first word in the context, plot how it changes with dimension
+plt.plot(sd_hf["transformer.wpe.weight"][0])
+# %% generate some text
+from transformers import pipeline, set_seed
+
+generator = pipeline("text-generation", model="gpt2")
+set_seed(42)
+generator("Hello, I'm a language model,", max_length=30, num_return_sequences=5)
