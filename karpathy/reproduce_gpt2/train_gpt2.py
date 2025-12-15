@@ -8,7 +8,7 @@ from torch.nn import functional as F
 
 # in the gpt from scratch video this was the MultiHeadAttention class
 # this class does the same thing all in one set of matrix operations, which is more performant
-# unfortunatly I (Mike) am not following the math to really understand this is true
+# unfortunately I (Mike) am not following the math to really understand this is true
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -101,7 +101,7 @@ class GPTConfig:
 # reproduce the gpt2 model structure
 # plan is to load the weights and verify that we got it right
 # use the hugging face data
-# then train the weights ourselfs to prove we can do it
+# then train the weights ourselvs to prove we can do it
 class GPT(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -204,7 +204,7 @@ class GPT(nn.Module):
 
 # -----------------------------------------------------------------------------
 num_return_sequences = 5
-max_lenght = 30
+max_length = 30
 
 
 def get_device():
@@ -243,7 +243,7 @@ x = tokens.to(device)
 # generate
 torch.manual_seed(42)
 set_seed_on_gpu(device, 42)
-while x.size(1) < max_lenght:
+while x.size(1) < max_length:
     with torch.no_grad():
         logits = model(x)
         # get the last column of logits
@@ -260,9 +260,9 @@ while x.size(1) < max_lenght:
         x = torch.cat((x, xcol), dim=1)
 
 for i in range(num_return_sequences):
-    tokens = x[i, :max_lenght].tolist()
+    tokens = x[i, :max_length].tolist()
     decoded = enc.decode(tokens)
     print(">", decoded)
 # note that the above will not match what hugging face generator produces
-# Karpathy wasn't able to get that either. He wote some similar code to the above
-# to samople from the hugging face model directly and that matched for him. I am going to take his word for it
+# Karpathy wasn't able to get that either. He wrote some similar code to the above
+# to sample from the hugging face model directly and that matched for him. I am going to take his word for it
