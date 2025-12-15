@@ -117,6 +117,25 @@ class GPT(nn.Module):
         )
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
+    def forward(self, idx):
+        # idx is of shape (B, T)
+        B, T = idx.size()
+        assert T <= self.config.block_size, (
+            f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
+        )
+        # forward the token and posisition embeddings
+        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)  # shape (T)
+        pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (T, n_embd)
+        tok_emb = self.transformer.wte(idx)  # token embeddings of shape (B, T, n_embd)
+        x = tok_emb + pos_emb
+        # forward the blocks of the transformer
+        for block in self.transformer.h:
+            x = block(x)
+        # forward the final layernorm and the classifier
+        x = self.transformer.ln_f(x)
+        logits = self.lm_head(x)  # (B, T, vocab_size)
+        return logits
+
     # classmethod is python for c++ static. This method applies to the class not an object
     # Create and return a GPT based on model_type
     @classmethod
@@ -184,5 +203,66 @@ class GPT(nn.Module):
 
 
 # -----------------------------------------------------------------------------
+num_return_sequences = 5
+max_lenght = 30
+
+
+def get_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        return "mps"
+    else:
+        raise Exception("Didn't find a gpu. Can't keep going")
+
+
+def set_seed_on_gpu(device: str, seed: int):
+    device_funct = {
+        "cuda": torch.cuda.manual_seed_all,
+        "mps": torch.mps.manual_seed,
+    }[device]
+    device_funct(seed)
+
+
+device = get_device()
+print(f"found device {device}")
+
 model = GPT.from_pretrained("gpt2")
-print("didn't crash yay!")
+model.eval()
+model.to(device)
+
+# prefix tokens, kind of like a prompt
+import tiktoken
+
+enc = tiktoken.get_encoding("gpt2")
+tokens = enc.encode("Hello, I'm a language model,")
+tokens = torch.tensor(tokens, dtype=torch.long)
+tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
+x = tokens.to(device)
+
+# generate
+torch.manual_seed(42)
+set_seed_on_gpu(device, 42)
+while x.size(1) < max_lenght:
+    with torch.no_grad():
+        logits = model(x)
+        # get the last column of logits
+        logits = logits[:, -1, :]
+        # convert to probabilities
+        probs = F.softmax(logits, dim=-1)
+        # top k drops all but the top (50) probs by setting them to 0 and re-normalizing
+        # this makes improbably tokens impossible
+        # this is something hugging face does so we will do it here
+        topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
+        # pick an index out of probs
+        ix = torch.multinomial(topk_probs, 1)
+        xcol = torch.gather(topk_indices, -1, ix)
+        x = torch.cat((x, xcol), dim=1)
+
+for i in range(num_return_sequences):
+    tokens = x[i, :max_lenght].tolist()
+    decoded = enc.decode(tokens)
+    print(">", decoded)
+# note that the above will not match what hugging face generator produces
+# Karpathy wasn't able to get that either. He wote some similar code to the above
+# to samople from the hugging face model directly and that matched for him. I am going to take his word for it
