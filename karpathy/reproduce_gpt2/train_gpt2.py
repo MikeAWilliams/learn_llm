@@ -266,3 +266,6 @@ for i in range(num_return_sequences):
 # note that the above will not match what hugging face generator produces
 # Karpathy wasn't able to get that either. He wrote some similar code to the above
 # to sample from the hugging face model directly and that matched for him. I am going to take his word for it
+
+# return to
+# https://youtu.be/l8pRSuU81PU?si=e-eZa0gerWYP6LAg&t=2500
