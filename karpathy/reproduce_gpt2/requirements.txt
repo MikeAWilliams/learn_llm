@@ -1,0 +1,2 @@
+matplotlib==3.10.8
+transformers==4.57.3
