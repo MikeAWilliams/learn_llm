@@ -117,7 +117,7 @@ class GPT(nn.Module):
         )
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-    def forward(self, idx):
+    def forward(self, idx, targets=None):
         # idx is of shape (B, T)
         B, T = idx.size()
         assert T <= self.config.block_size, (
@@ -134,7 +134,13 @@ class GPT(nn.Module):
         # forward the final layernorm and the classifier
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)  # (B, T, vocab_size)
-        return logits
+        loss = None
+        if targets is not None:
+            # view the logits in 2d. Set the second dim to the last size of logits,
+            # vocam_size. It figures out the first which will be B*T
+            # then flatten out the targes into 1d
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        return logits, loss
 
     # classmethod is python for c++ static. This method applies to the class not an object
     # Create and return a GPT based on model_type
@@ -208,24 +214,54 @@ max_length = 30
 
 
 def get_device():
+    result = "cpu"
     if torch.cuda.is_available():
-        return "cuda"
+        result = "cuda"
     elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
-        return "mps"
-    else:
-        raise Exception("Didn't find a gpu. Can't keep going")
+        result = "mps"
+    return result
 
 
-def set_seed_on_gpu(device: str, seed: int):
+def set_seed_on_device(device: str, seed: int):
     device_funct = {
         "cuda": torch.cuda.manual_seed_all,
         "mps": torch.mps.manual_seed,
+        "cpu": torch.manual_seed,
     }[device]
     device_funct(seed)
 
 
 device = get_device()
 print(f"found device {device}")
+
+# load some example training data to work with as we write the training code
+import tiktoken
+
+# move back to cpu for now
+device = "cpu"
+
+# wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
+with open("input.txt", "r", encoding="utf-8") as f:
+    text = f.read()
+text = text[:1000]
+enc = tiktoken.get_encoding("gpt2")
+tokens = enc.encode(text)
+B, T = 4, 32
+buf = torch.tensor(tokens[: B * T + 1])
+x = buf[:-1].view(B, T)
+y = buf[1:].view(B, T)
+
+# inline the forward pass and loss calculations
+model = GPT(GPTConfig())
+model.to(device)
+logits, loss = model(x, y)
+print(loss)
+
+# stop the rest from executing
+import sys
+
+sys.exit(0)
+
 
 model = GPT.from_pretrained("gpt2")
 model.eval()
@@ -242,7 +278,7 @@ x = tokens.to(device)
 
 # generate
 torch.manual_seed(42)
-set_seed_on_gpu(device, 42)
+set_seed_on_device(device, 42)
 while x.size(1) < max_length:
     with torch.no_grad():
         logits = model(x)

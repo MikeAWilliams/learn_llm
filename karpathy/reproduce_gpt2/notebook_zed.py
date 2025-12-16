@@ -19,7 +19,7 @@ for k, v in sd_hf.items():
 # %% make a quick plot of wpe
 import matplotlib.pyplot as plt
 
-# %matplotlib inline
+# %% matplotlib inline
 
 plt.imshow(sd_hf["transformer.wpe.weight"], cmap="gray")
 # %% look at a couple of columns
@@ -35,4 +35,34 @@ from transformers import pipeline, set_seed
 
 generator = pipeline("text-generation", model="gpt2")
 set_seed(42)
-generator("Hello, I'm a language model,", max_length=30, num_return_sequences=5)
+generator(
+    "Hello, I'm a language model,",
+    max_new_tokens=30,
+    num_return_sequences=5,
+    truncation=True,
+)
+
+# %% good old shakespere data
+
+# wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
+with open("input.txt", "r", encoding="utf-8") as f:
+    text = f.read()
+data = text[:1000]
+print(data[:100])
+# %% use the gpt2 tokenizer on the data
+import tiktoken
+
+enc = tiktoken.get_encoding("gpt2")
+tokens = enc.encode(data)
+print(tokens[:24])
+# %% make batches out of the tokens
+import torch
+
+# its a nice trick to load one more token than you need and then
+# exclude the last one from the input and the first one from the output
+# recall that view is a reference back to the raw data
+buf = torch.tensor(tokens[: 24 + 1])
+x = buf[:-1].view(4, 6)
+y = buf[1:].view(4, 6)
+print(x)
+print(y)
