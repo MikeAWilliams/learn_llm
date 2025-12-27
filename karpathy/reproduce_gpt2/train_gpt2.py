@@ -308,7 +308,12 @@ import time
 #
 # lets try B = 8 no tensor float uses 26gb and gets 4k tok/sec
 # with tensor_float I get the same as without. It seems that apple doesn't suport this
-train_loader = DataLoaderLite(B=8, T=1024)
+#
+# B=8 runs out of memory without memory optimization on 5070ti
+# B=4 uses 10,288 MiB without optimization, around 18,000 tok/sec
+# With both autocast and high precision we use just a little less 10,058 MiB but we get ~26,000 tok/sec
+# B=6 we use 13,916 MiB
+train_loader = DataLoaderLite(B=6, T=1024)
 
 torch.set_float32_matmul_precision("high")
 
@@ -316,7 +321,7 @@ torch.set_float32_matmul_precision("high")
 model = GPT(GPTConfig())
 model.to(device)
 # doens't seem to help on apple gpu
-model = torch.compile(model)
+# model = torch.compile(model)
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 for i in range(50):
     t0 = time.time()
@@ -326,6 +331,7 @@ for i in range(50):
     # apple gpu doesn't seem to support this either I get no change in performance
     with torch.autocast(device_type=device, dtype=torch.bfloat16):
         logits, loss = model(x, y)
+    # logits, loss = model(x, y)
     loss.backward()
     optimizer.step()
     sync_on_device(device)
