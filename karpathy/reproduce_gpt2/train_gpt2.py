@@ -431,4 +431,4 @@ for i in range(num_return_sequences):
 # to sample from the hugging face model directly and that matched for him. I am going to take his word for it
 
 # return to
-# https://youtu.be/l8pRSuU81PU?si=I_1Ahw2Z-i6h3jvm&t=6538
+# https://youtu.be/l8pRSuU81PU?si=FZB5ToCUBcFcpzSB&t=8790
