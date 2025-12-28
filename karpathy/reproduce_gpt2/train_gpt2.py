@@ -448,6 +448,9 @@ max_lr = 6e-4
 min_lr = max_lr * 0.1
 warmup_steps = 715
 max_steps = 19073
+steps_completed = 0
+total_time_elapsed = 0.0
+avg_step_time = None
 
 
 def get_lr(it):
@@ -465,7 +468,7 @@ def get_lr(it):
 optimizer = raw_model.configure_optimizers(
     weight_decay=0.1, learning_rate=6e-4, device=device
 )
-for step in range(50):
+for step in range(max_steps):
     t0 = time.time()
     optimizer.zero_grad()
     # apple gpu doesn't seem to support this either I get no change in performance
@@ -495,14 +498,57 @@ for step in range(50):
     sync_on_device(device)
     t1 = time.time()
     dt = t1 - t0
+    total_time_elapsed += dt
+    steps_completed = step + 1
     tokens_processed = (
         train_loader.B * train_loader.T * grad_accum_steps * ddp_world_size
     )
     tokens_per_sec = tokens_processed / dt
+    if step >= 10:
+        if avg_step_time is None:
+            avg_step_time = dt
+        else:
+            avg_step_time = 0.9 * avg_step_time + 0.1 * dt
     if master_process:
-        print(
-            f"step {step:5d} | loss: {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt * 1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}"
-        )
+        # Calculate time estimates
+        steps_remaining = max_steps - steps_completed
+
+        if avg_step_time is not None:
+            estimated_time_remaining = steps_remaining * avg_step_time
+            estimated_total_time = total_time_elapsed + estimated_time_remaining
+
+            # Format time estimates
+            def format_time(seconds):
+                hours = int(seconds // 3600)
+                minutes = int((seconds % 3600) // 60)
+                secs = int(seconds % 60)
+                if hours > 0:
+                    return f"{hours}h {minutes}m {secs}s"
+                elif minutes > 0:
+                    return f"{minutes}m {secs}s"
+                else:
+                    return f"{secs}s"
+
+            elapsed_str = format_time(total_time_elapsed)
+            remaining_str = format_time(estimated_time_remaining)
+            total_str = format_time(estimated_total_time)
+
+            progress_pct = (steps_completed / max_steps) * 100
+
+            print(
+                f"step {step:5d}/{max_steps} ({progress_pct:.1f}%) | "
+                f"loss: {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | "
+                f"dt: {dt * 1000:.2f}ms | tok/sec: {tokens_per_sec:.0f} | "
+                f"elapsed: {elapsed_str} | remaining: {remaining_str} | total: {total_str}"
+            )
+        else:
+            # During initial steps, show simpler output
+            print(
+                f"step {step:5d}/{max_steps} | "
+                f"loss: {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | "
+                f"dt: {dt * 1000:.2f}ms | tok/sec: {tokens_per_sec:.0f} | "
+                f"warming up..."
+            )
 
 if ddp:
     destroy_process_group()
