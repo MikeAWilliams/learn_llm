@@ -302,7 +302,9 @@ class DataLoaderLite:
 
         if master_process:
             print(f"found {len(self.shards)} shards for split {split}")
+        self.reset()
 
+    def reset(self):
         # state
         self.current_shard = 0
         self.tokens = load_tokens(self.shards[self.current_shard])
@@ -429,6 +431,9 @@ if master_process:
 train_loader = DataLoaderLite(
     B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="train"
 )
+val_loader = DataLoaderLite(
+    B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="val"
+)
 
 
 torch.set_float32_matmul_precision("high")
@@ -470,6 +475,27 @@ optimizer = raw_model.configure_optimizers(
 )
 for step in range(max_steps):
     t0 = time.time()
+
+    # once in a while evaluate our validation loss
+    if step % 100 == 0:
+        model.eval()
+        val_loader.reset()
+        with torch.no_grad():
+            val_loss_accum = 0.0
+            val_loss_steps = 20
+            for _ in range(val_loss_steps):
+                x, y = val_loader.next_batch()
+                x, y = x.to(device), y.to(device)
+                with torch.autocast(device_type=device, dtype=torch.bfloat16):
+                    logits, loss = model(x, y)
+                loss = loss / val_loss_steps
+                val_loss_accum += loss.detach()
+        if ddp:
+            dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
+        if master_process:
+            print(f"validation loss: {val_loss_accum.item():.4f}")
+
+    model.train()
     optimizer.zero_grad()
     # apple gpu doesn't seem to support this either I get no change in performance
 
@@ -599,4 +625,4 @@ for i in range(num_return_sequences):
 # to sample from the hugging face model directly and that matched for him. I am going to take his word for it
 
 # return to
-# https://youtu.be/l8pRSuU81PU?si=8yYOjBBaVWn1xee3&t=11413
+# https://youtu.be/l8pRSuU81PU?si=gh7ciADbrOIru9X1&t=12325
