@@ -338,6 +338,7 @@ def sync_on_device(device: str):
     device_funct()
 
 
+# consider running on rented gpu from https://cloud.lambda.ai/instances
 # ddp mode is NVIDIA only but single can still be any device
 # python train_gpt2.py
 # DDP launch for e.g. 8 GPUs:
