@@ -1,8 +1,10 @@
 import math
 from dataclasses import dataclass
+from operator import is_
 
 import torch
 import torch.nn as nn
+from requests.models import DecodeError
 from torch.nn import functional as F
 
 
@@ -48,10 +50,15 @@ class CausalSelfAttention(nn.Module):
             1, 2
         )  # (B, nh, T, hs)
         # attention (materializes the large (T,T) matrix for all the queries and keys)
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
-        att = F.softmax(att, dim=-1)
-        y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        # these lines can be optimized with flash attention
+        # att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        # att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
+        # att = F.softmax(att, dim=-1)
+        # y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+
+        # flash attention is optimized for memory efficiency, but actually uses more operations
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+
         y = (
             y.transpose(1, 2).contiguous().view(B, T, C)
         )  # re-assemble all head outputs side by side
@@ -313,17 +320,47 @@ import time
 # B=4 uses 10,288 MiB without optimization, around 18,000 tok/sec
 # With both autocast and high precision we use just a little less 10,058 MiB but we get ~26,000 tok/sec
 # B=6 we use 13,916 MiB
-train_loader = DataLoaderLite(B=6, T=1024)
+# Later still B=6 I got a crash
+#
+# Now after adding torch.compile(model) I am getting 48.5k tok/sec and using only 7,644 MiB vram (B=4)
+# Move to B=8 and get 55.6k tok/sec and 13,198 MiB vram
+#
+# With flash attention we get 72k tok/sec and 8,534 MiB vram (B=8)
+# With flash attention we get 74k tok/sec and 12,738 MiB vram (B=14)
+#
+# increase vocab_size to 50304 gets us to 78k tok/sec and 11,368 MiB MiB vram (B=14)
+# 79k tok/sec and 12,768 MiB MiB vram (B=16)
+train_loader = DataLoaderLite(B=16, T=1024)
 
 torch.set_float32_matmul_precision("high")
 
 # inline the forward pass and loss calculations
-model = GPT(GPTConfig())
+# recall that default vocab_size is 50257, but that isn't a power of 2
+model = GPT(GPTConfig(vocab_size=50304))
 model.to(device)
 # doens't seem to help on apple gpu
-# model = torch.compile(model)
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
-for i in range(50):
+model = torch.compile(model)
+
+# implement variable learning rate
+max_lr = 6e-4
+min_lr = max_lr * 0.1
+warmup_steps = 10
+max_steps = 50
+
+
+def get_lr(it):
+    if it < warmup_steps:
+        return max_lr * (it + 1) / warmup_steps
+    if it > max_steps:
+        return min_lr
+    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+    return min_lr + coeff * (max_lr - min_lr)
+
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
+for step in range(50):
     t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
@@ -333,13 +370,17 @@ for i in range(50):
         logits, loss = model(x, y)
     # logits, loss = model(x, y)
     loss.backward()
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    lr = get_lr(step)
+    for param_group in optimizer.param_groups:
+        param_group["lr"] = lr
     optimizer.step()
     sync_on_device(device)
     t1 = time.time()
     dt = (t1 - t0) * 1000
     tokens_per_second = (train_loader.B * train_loader.T) / (t1 - t0)
     print(
-        f"step {i}, loss {loss.item()}, dt: {dt:.2f}ms, tok/sec: {tokens_per_second:0.2f}"
+        f"step {step}, loss {loss.item()}, | lr: {lr:.4e}, norm: {norm:.4f}, dt: {dt:.2f}ms, tok/sec: {tokens_per_second:0.2f}"
     )
 
 
