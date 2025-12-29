@@ -2,16 +2,10 @@ import inspect
 import math
 import os
 import time
-from asyncio.events import AbstractEventLoopPolicy
 from dataclasses import dataclass
-from decimal import DefaultContext
-from operator import is_
 
 import torch
 import torch.nn as nn
-from requests.api import get
-from requests.models import DecodeError
-from torch._prims_common import Number
 from torch.nn import functional as F
 
 from hellaswag import iterate_examples, render_example
@@ -32,13 +26,6 @@ class CausalSelfAttention(nn.Module):
         # regularization
         self.n_head = config.n_head
         self.n_embd = config.n_embd
-
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(config.block_size, config.block_size)).view(
-                1, 1, config.block_size, config.block_size
-            ),
-        )
 
     def forward(self, x):
         B, T, C = (
@@ -280,6 +267,7 @@ import tiktoken
 
 def load_tokens(filename):
     npt = np.load(filename)
+    npt = npt.astype(np.int32)
     ptt = torch.tensor(npt, dtype=torch.long)
     return ptt
 
@@ -492,6 +480,7 @@ steps_completed = 0
 total_time_elapsed = 0.0
 avg_step_time = None
 output_interval = 100
+checkpoint_interval = 5000
 
 
 def get_lr(it):
@@ -531,16 +520,31 @@ for step in range(max_steps):
             for _ in range(val_loss_steps):
                 x, y = val_loader.next_batch()
                 x, y = x.to(device), y.to(device)
+                if ddp:
+                    dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
                 with torch.autocast(device_type=device, dtype=torch.bfloat16):
                     logits, loss = model(x, y)
                 loss = loss / val_loss_steps
                 val_loss_accum += loss.detach()
-        if ddp:
-            dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
         if master_process:
             print(f"validation loss: {val_loss_accum.item():.4f}")
             with open(log_file, "a") as f:
                 f.write(f"{step} val {val_loss_accum.item():.4f}\n")
+
+            # save the weights
+            if step > 0 and (step % checkpoint_interval == 0 or last_step):
+                # optionally write model checkpoints
+                print("saving weights")
+                checkpoint_path = os.path.join(log_dir, f"model_{step:05d}.pt")
+                checkpoint = {
+                    "model": raw_model.state_dict(),
+                    "config": raw_model.config,
+                    "step": step,
+                    "val_loss": val_loss_accum.item(),
+                }
+                # you might also want to add optimizer.state_dict() and
+                # rng seeds etc., if you wanted to more exactly resume training
+                torch.save(checkpoint, checkpoint_path)
 
     # once in a while evaluate hellaswag
     if (step % output_interval == 0 or last_step) and (not use_compile):
@@ -702,5 +706,3 @@ for step in range(max_steps):
 
 if ddp:
     destroy_process_group()
-# return to
-# https://youtu.be/l8pRSuU81PU?si=gh7ciADbrOIru9X1&t=12325
