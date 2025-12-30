@@ -464,9 +464,7 @@ torch.set_float32_matmul_precision("high")
 model = GPT(GPTConfig(vocab_size=50304))
 model.to(device)
 # doens't seem to help on apple gpu
-use_compile = False
-if use_compile:
-    model = torch.compile(model)
+model = torch.compile(model)
 if ddp:
     model = DDP(model, device_ids=[ddp_rank], output_device=ddp_rank)
 raw_model = model.module if ddp else model
@@ -547,7 +545,7 @@ for step in range(max_steps):
                 torch.save(checkpoint, checkpoint_path)
 
     # once in a while evaluate hellaswag
-    if (step % output_interval == 0 or last_step) and (not use_compile):
+    if step % output_interval == 0 or last_step:
         num_correct_norm = 0
         num_total = 0
         for i, example in enumerate(iterate_examples("val")):
@@ -561,7 +559,7 @@ for step in range(max_steps):
             # get the logits
             with torch.no_grad():
                 with torch.autocast(device_type=device, dtype=torch.bfloat16):
-                    logits, loss = model(tokens)
+                    logits, _ = model(tokens)
                 pred_norm = get_most_likely_row(tokens, mask, logits)
             num_total += 1
             num_correct_norm += int(pred_norm == label)
@@ -582,9 +580,7 @@ for step in range(max_steps):
                 f.write(f"{step} hella {acc_norm:.4f}\n")
 
     # once in a while generate from the model (except step 0, which is noise)
-    # disabled because torch.compile throws a scary error i can't solve rn
-    # if you disable torch.compile, this code works fine
-    if ((step > 0 and step % output_interval == 0) or last_step) and not use_compile:
+    if (step > 0 and step % output_interval == 0) or last_step:
         model.eval()
         num_return_sequences = 4
         max_length = 32
@@ -598,7 +594,7 @@ for step in range(max_steps):
             # forward the model to get the logits
             with torch.no_grad():
                 with torch.autocast(device_type=device, dtype=torch.bfloat16):
-                    logits, loss = model(xgen)  # (B, T, vocab_size)
+                    logits, _ = model(xgen)  # (B, T, vocab_size)
                 # take the logits at the last position
                 logits = logits[:, -1, :]  # (B, vocab_size)
                 # get the probabilities
