@@ -27,6 +27,7 @@ class TrainingConfig:
     vocab_size: int = 50304  # Optimized for GPU efficiency (nearest multiple of 64)
 
     # Batch configuration
+    # recal requirement total_batch_size % (B * T * ddp_world_size) == 0
     micro_batch_size: int = 8  # B - micro batch size per GPU
     sequence_length: int = 1024  # T - sequence length
     total_batch_size: int = 524288  # 2**19, ~0.5M tokens
@@ -376,6 +377,12 @@ def train_step(model, train_loader, optimizer, device, ddp, grad_accum_steps):
 
 def main():
     config = TrainingConfig()
+    # overrides for local testing
+    # config.output_interval = 10
+    # config.checkpoint_interval = 10
+    # overrides for 80 gpu runs
+    # config.micro_batch_size = 96
+    # config.total_batch_size = 589824
 
     # Set up distributed training
     ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process = setup_ddp()
