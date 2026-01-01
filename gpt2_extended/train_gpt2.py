@@ -1,3 +1,4 @@
+import argparse
 import math
 import os
 import time
@@ -151,7 +152,6 @@ def get_most_likely_row(tokens, mask, logits):
     Helper function for HellaSwag eval.
     Takes tokens, mask, and logits, returns the index of the completion with the lowest loss.
     """
-    # evaluate the autoregressive loss at all positions
     shift_logits = (logits[..., :-1, :]).contiguous()
     shift_tokens = (tokens[..., 1:]).contiguous()
     flat_shift_logits = shift_logits.view(-1, shift_logits.size(-1))
@@ -160,16 +160,11 @@ def get_most_likely_row(tokens, mask, logits):
         flat_shift_logits, flat_shift_tokens, reduction="none"
     )
     shift_losses = shift_losses.view(tokens.size(0), -1)
-    # now get the average loss just for the completion region (where mask == 1), in each row
-    shift_mask = (
-        mask[..., 1:]
-    ).contiguous()  # we must shift mask, so we start at the last prompt token
+    # average loss for completion region only (where mask == 1)
+    shift_mask = mask[..., 1:].contiguous()
     masked_shift_losses = shift_losses * shift_mask
-    # sum and divide by the number of 1s in the mask
     sum_loss = masked_shift_losses.sum(dim=1)
     avg_loss = sum_loss / shift_mask.sum(dim=1)
-    # now we have a loss for each of the 4 completions
-    # the one with the lowest loss should be the most likely
     pred_norm = avg_loss.argmin().item()
     return pred_norm
 
@@ -205,6 +200,21 @@ def format_time(seconds):
 # -----------------------------------------------------------------------------
 # Training Functions
 # -----------------------------------------------------------------------------
+
+
+def load_checkpoint(checkpoint_path, device):
+    """
+    Load checkpoint from file.
+    Always resumes from step 0 with warmup learning rate.
+    Returns: checkpoint_dict
+    """
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    print(f"Loading checkpoint from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    print("Resuming training from step 0 with warmup learning rate")
+    return checkpoint
 
 
 def setup_ddp():
@@ -268,18 +278,15 @@ def evaluate_hellaswag(
         # only process examples where i % ddp_world_size == ddp_rank
         if i % ddp_world_size != ddp_rank:
             continue
-        # render the example into tokens and labels
         _, tokens, mask, label = render_example(example)
         tokens = tokens.to(device)
         mask = mask.to(device)
-        # get the logits
         with torch.no_grad():
             with torch.autocast(device_type=device, dtype=torch.bfloat16):
                 logits, _ = model(tokens)
             pred_norm = get_most_likely_row(tokens, mask, logits)
         num_total += 1
         num_correct_norm += int(pred_norm == label)
-    # reduce the stats across all processes
     if ddp:
         num_total = torch.tensor(num_total, dtype=torch.long, device=device)
         num_correct_norm = torch.tensor(
@@ -312,20 +319,13 @@ def generate_samples(model, device, ddp_rank, enc, master_process):
         # forward the model to get the logits
         with torch.no_grad():
             with torch.autocast(device_type=device, dtype=torch.bfloat16):
-                logits, _ = model(xgen)  # (B, T, vocab_size)
-            # take the logits at the last position
-            logits = logits[:, -1, :]  # (B, vocab_size)
-            # get the probabilities
+                logits, _ = model(xgen)
+            logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=-1)
-            # do top-k sampling of 50 (huggingface pipeline default)
             topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
-            # select a token from the top-k probabilities
-            ix = torch.multinomial(topk_probs, 1, generator=sample_rng)  # (B, 1)
-            # gather the corresponding indices
-            xcol = torch.gather(topk_indices, -1, ix)  # (B, 1)
-            # append to the sequence
+            ix = torch.multinomial(topk_probs, 1, generator=sample_rng)
+            xcol = torch.gather(topk_indices, -1, ix)
             xgen = torch.cat((xgen, xcol), dim=1)
-    # print the generated text
     if master_process:
         for i in range(num_return_sequences):
             tokens = xgen[i, :max_length].tolist()
@@ -358,7 +358,6 @@ def train_step(model, train_loader, optimizer, device, ddp, grad_accum_steps):
         x, y = x.to(device), y.to(device)
         with torch.autocast(device_type=device, dtype=torch.bfloat16):
             logits, loss = model(x, y)
-        # scale the loss to account for gradient accumulation
         loss = loss / grad_accum_steps
         loss_accum += loss.detach()
         if ddp:
@@ -368,23 +367,22 @@ def train_step(model, train_loader, optimizer, device, ddp, grad_accum_steps):
     if ddp:
         dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
 
-    # clip gradients
     norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
 
     return loss_accum.item(), norm
 
 
-def main():
+def main(resume_from=None):
     config = TrainingConfig()
     # overrides for local testing
     # config.output_interval = 10
     # config.checkpoint_interval = 10
     # overrides for 80 gpu runs
+    # set total batch size as a nice multiple of B * T. Picked 8 so I can run on 1,2,4,8 gpu
     # config.micro_batch_size = 96
-    # config.total_batch_size = 589824
+    # config.total_batch_size = config.micro_batch_size * config.sequence_length * 8
 
-    # Set up distributed training
     ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process = setup_ddp()
 
     torch.manual_seed(config.seed)
@@ -423,12 +421,30 @@ def main():
 
     torch.set_float32_matmul_precision("high")
 
-    model = GPT(GPTConfig(vocab_size=config.vocab_size))
+    # Load checkpoint if resuming (but always start from step 0)
+    checkpoint_data = None
+    if resume_from:
+        checkpoint_data = load_checkpoint(resume_from, device)
+        model_config = checkpoint_data["config"]
+        if master_process:
+            print(
+                f"Loaded model config from checkpoint: vocab_size={model_config.vocab_size}"
+            )
+    else:
+        model_config = GPTConfig(vocab_size=config.vocab_size)
+
+    model = GPT(model_config)
     model.to(device)
     model = torch.compile(model)
     if ddp:
         model = DDP(model, device_ids=[ddp_local_rank], output_device=ddp_local_rank)
     raw_model = model.module if ddp else model
+
+    # Load model weights if resuming (after compile to match checkpoint format)
+    if checkpoint_data:
+        model.load_state_dict(checkpoint_data["model"])
+        if master_process:
+            print("Loaded model weights from checkpoint")
 
     optimizer = raw_model.configure_optimizers(
         weight_decay=config.weight_decay,
@@ -439,26 +455,26 @@ def main():
 
     os.makedirs(config.log_dir, exist_ok=True)
     log_file = os.path.join(config.log_dir, "log.txt")
-    with open(log_file, "w") as f:  # open for writing to clear the file
+
+    with open(log_file, "w") as f:
         pass
 
-    # Training state
     steps_completed = 0
     total_time_elapsed = 0.0
     avg_step_time = None
 
-    # Training loop
-    for step in range(config.max_steps):
+    if master_process and resume_from:
+        print(f"Starting fresh training from step 0 (using weights from checkpoint)")
+
+    for step in range(0, config.max_steps):
         t0 = time.time()
         last_step = step == config.max_steps - 1
 
-        # Validation
         if step % config.output_interval == 0 or last_step:
             val_loss = evaluate_validation(
                 model, val_loader, device, ddp, master_process, log_file, step
             )
 
-            # Save checkpoint
             if step > 0 and (step % config.checkpoint_interval == 0 or last_step):
                 save_checkpoint(
                     raw_model, step, val_loss, config.log_dir, master_process
@@ -479,22 +495,18 @@ def main():
         if (step > 0 and step % config.output_interval == 0) or last_step:
             generate_samples(model, device, ddp_rank, enc, master_process)
 
-        # Training step
         loss, norm = train_step(
             model, train_loader, optimizer, device, ddp, grad_accum_steps
         )
 
-        # Update learning rate
         lr = get_lr(step, config)
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
 
-        # Synchronize device
         sync_on_device(device)
         t1 = time.time()
         dt = t1 - t0
 
-        # Update timing statistics
         total_time_elapsed += dt
         steps_completed = step + 1
         tokens_processed = (
@@ -507,7 +519,6 @@ def main():
             else:
                 avg_step_time = 0.9 * avg_step_time + 0.1 * dt
 
-        # Logging
         if master_process:
             steps_remaining = config.max_steps - steps_completed
 
@@ -528,7 +539,6 @@ def main():
                     f"elapsed: {elapsed_str} | remaining: {remaining_str} | total: {total_str}"
                 )
             else:
-                # During initial steps, show simpler output
                 print(
                     f"step {step:5d}/{config.max_steps} | "
                     f"loss: {loss:.6f} | lr {lr:.4e} | norm: {norm:.4f} | "
@@ -536,7 +546,6 @@ def main():
                     f"warming up..."
                 )
 
-            # Log to file
             with open(log_file, "a") as f:
                 f.write(f"{step} train {loss:.6f}\n")
 
@@ -548,7 +557,13 @@ def main():
 
 
 if __name__ == "__main__":
-    # Usage:
-    # Single GPU/CPU: python train_gpt2.py
-    # Multi-GPU (DDP): torchrun --standalone --nproc_per_node=8 train_gpt2.py
-    main()
+    parser = argparse.ArgumentParser(description="Train GPT-2 model")
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to checkpoint file to resume from (e.g., log/model_05000.pt)",
+    )
+    args = parser.parse_args()
+
+    main(resume_from=args.resume)
