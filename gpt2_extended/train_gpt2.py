@@ -14,6 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from hellaswag import iterate_examples, render_example
 from model import GPT, GPTConfig
+from util import get_device, set_seed_on_device, load_checkpoint as load_checkpoint_base
 
 # -----------------------------------------------------------------------------
 # Training Configuration
@@ -117,26 +118,6 @@ class DataLoaderLite:
 # -----------------------------------------------------------------------------
 
 
-def get_device():
-    """Detect the best available device."""
-    result = "cpu"
-    if torch.cuda.is_available():
-        result = "cuda"
-    elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
-        result = "mps"
-    return result
-
-
-def set_seed_on_device(device: str, seed: int):
-    """Set random seed for the specified device."""
-    device_funct = {
-        "cuda": torch.cuda.manual_seed_all,
-        "mps": torch.mps.manual_seed,
-        "cpu": torch.manual_seed,
-    }[device]
-    device_funct(seed)
-
-
 def sync_on_device(device: str):
     """Synchronize the specified device."""
     device_funct = {
@@ -204,15 +185,11 @@ def format_time(seconds):
 
 def load_checkpoint(checkpoint_path, device):
     """
-    Load checkpoint from file.
+    Load checkpoint from file for training.
     Always resumes from step 0 with warmup learning rate.
     Returns: checkpoint_dict
     """
-    if not os.path.exists(checkpoint_path):
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
-    print(f"Loading checkpoint from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    checkpoint = load_checkpoint_base(checkpoint_path, device)
     print("Resuming training from step 0 with warmup learning rate")
     return checkpoint
 
