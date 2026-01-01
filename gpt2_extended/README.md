@@ -55,18 +55,9 @@ python fineweb.py
 python hellaswag.py 
 ```
 
-## Recent Fixes
-
-### torch.compile Compatibility
-The model is now fully compatible with `torch.compile()`. Previously, the forward method's conditional loss computation caused issues during generation and evaluation. This was fixed by:
-- Explicitly ignoring the loss output (`logits, _ = model(xgen)`) when targets are not provided
-- Removing the conditional that disabled generation when compilation was enabled
-
-This allows for faster training with compiled models while maintaining text generation capabilities.
-
 ## Acknowledgments
 
-Special thanks to Andrej Karpathy for the educational content and clear explanations that made this implementation possible. His approach to teaching complex machine learning concepts through practical implementation is invaluable for the community.
+Thanks to Andrej Karpathy for the educational content and clear explanations that made this implementation possible. His approach to teaching complex machine learning concepts through practical implementation is invaluable.
 
 ## License
 
