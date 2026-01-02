@@ -423,7 +423,21 @@ def main(resume_from=None):
 
     # Load model weights if resuming (after compile to match checkpoint format)
     if checkpoint_data:
-        model.load_state_dict(checkpoint_data["model"])
+        state_dict = checkpoint_data["model"]
+        # Handle DDP wrapper: checkpoint may have different prefix than current model
+        # Checkpoint from non-DDP: has keys like "_orig_mod.transformer.wte.weight"
+        # DDP model expects: "module._orig_mod.transformer.wte.weight"
+        if ddp and not any(key.startswith("module.") for key in state_dict.keys()):
+            # Add module. prefix for DDP
+            state_dict = {f"module.{key}": value for key, value in state_dict.items()}
+        elif not ddp and any(key.startswith("module.") for key in state_dict.keys()):
+            # Remove module. prefix if loading DDP checkpoint into non-DDP model
+            state_dict = {
+                key.replace("module.", "", 1): value
+                for key, value in state_dict.items()
+            }
+
+        model.load_state_dict(state_dict)
         if master_process:
             print("Loaded model weights from checkpoint")
 
