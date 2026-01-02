@@ -43,6 +43,12 @@ pip install -r requirements.txt
 python train_gpt2.py
 # or on multiple GPUs
 torchrun --standalone --nproc_per_node=8 train_gpt2.py
+# or a practial restart example
+# Create and start a new tmux session
+tmux new -s training
+
+# Inside tmux, run your training with the resume parameter
+torchrun --standalone --nproc_per_node=2 train_gpt2.py --resume log/model_05000-02-jan.pt 2>&1 | tee screen.log
 ```
 
 ### Dataset Preparation
