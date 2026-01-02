@@ -14,7 +14,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from hellaswag import iterate_examples, render_example
 from model import GPT, GPTConfig
-from util import get_device, set_seed_on_device, load_checkpoint as load_checkpoint_base
+from util import get_device, set_seed_on_device
+from util import load_checkpoint as load_checkpoint_base
 
 # -----------------------------------------------------------------------------
 # Training Configuration
@@ -120,11 +121,14 @@ class DataLoaderLite:
 
 def sync_on_device(device: str):
     """Synchronize the specified device."""
+    # Extract device type from strings like "cuda:0" -> "cuda"
+    device_type = device.split(":")[0]
+
     device_funct = {
         "cuda": torch.cuda.synchronize,
         "mps": torch.mps.synchronize,
         "cpu": lambda: None,
-    }[device]
+    }[device_type]
     device_funct()
 
 
