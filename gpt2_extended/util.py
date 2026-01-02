@@ -1,6 +1,7 @@
 """Shared utility functions for GPT-2 training and inference."""
 
 import os
+
 import torch
 
 
@@ -16,11 +17,14 @@ def get_device():
 
 def set_seed_on_device(device: str, seed: int):
     """Set random seed for the specified device."""
+    # Extract device type from strings like "cuda:0" -> "cuda"
+    device_type = device.split(":")[0]
+
     device_funct = {
         "cuda": torch.cuda.manual_seed_all,
         "mps": torch.mps.manual_seed,
         "cpu": torch.manual_seed,
-    }[device]
+    }[device_type]
     device_funct(seed)
 
 
@@ -41,18 +45,18 @@ def unwrap_model_state_dict(state_dict):
     """
     Remove '_orig_mod.' prefix from state_dict keys.
     This prefix is added by torch.compile() but not needed for inference.
-    
+
     Args:
         state_dict: Model state dictionary, possibly with _orig_mod. prefix
-        
+
     Returns:
         Cleaned state dictionary without _orig_mod. prefix
     """
     unwrapped = {}
     for key, value in state_dict.items():
-        if key.startswith('_orig_mod.'):
+        if key.startswith("_orig_mod."):
             # Remove the _orig_mod. prefix
-            new_key = key[len('_orig_mod.'):]
+            new_key = key[len("_orig_mod.") :]
             unwrapped[new_key] = value
         else:
             unwrapped[key] = value
