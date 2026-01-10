@@ -50,7 +50,7 @@ class TrainingConfig:
     log_dir: str = "log"
 
     # Data
-    data_root: str = "edu_fineweb10B"
+    data_root: str = "tune_natural_questions"
 
     # Random seed
     seed: int = 1337
@@ -354,7 +354,7 @@ def train_step(model, train_loader, optimizer, device, ddp, grad_accum_steps):
     return loss_accum.item(), norm
 
 
-def main(resume_from=None):
+def main(resume_from):
     config = TrainingConfig()
     # overrides for local testing
     # config.output_interval = 10
@@ -402,17 +402,14 @@ def main(resume_from=None):
 
     torch.set_float32_matmul_precision("high")
 
-    # Load checkpoint if resuming (but always start from step 0)
+    # Load checkpoint from pre-training
     checkpoint_data = None
-    if resume_from:
-        checkpoint_data = load_checkpoint(resume_from, device)
-        model_config = checkpoint_data["config"]
-        if master_process:
-            print(
-                f"Loaded model config from checkpoint: vocab_size={model_config.vocab_size}"
-            )
-    else:
-        model_config = GPTConfig(vocab_size=config.vocab_size)
+    checkpoint_data = load_checkpoint(resume_from, device)
+    model_config = checkpoint_data["config"]
+    if master_process:
+        print(
+            f"Loaded model config from checkpoint: vocab_size={model_config.vocab_size}"
+        )
 
     model = GPT(model_config)
     model.to(device)
@@ -458,8 +455,8 @@ def main(resume_from=None):
     total_time_elapsed = 0.0
     avg_step_time = None
 
-    if master_process and resume_from:
-        print(f"Starting fresh training from step 0 (using weights from checkpoint)")
+    if master_process:
+        print("Starting training")
 
     for step in range(0, config.max_steps):
         t0 = time.time()
@@ -552,13 +549,14 @@ def main(resume_from=None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train GPT-2 model")
+    parser = argparse.ArgumentParser(description="Fine tune for Q&A GPT-2 model")
     parser.add_argument(
-        "--resume",
+        "--weights",
+        required=True,
         type=str,
         default=None,
         help="Path to checkpoint file to resume from (e.g., log/model_05000.pt)",
     )
     args = parser.parse_args()
 
-    main(resume_from=args.resume)
+    main(resume_from=args.weights)
