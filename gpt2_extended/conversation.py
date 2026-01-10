@@ -110,6 +110,11 @@ def main():
         help="Path to model checkpoint (e.g., log/model_19072-nq_00150.pt)",
     )
     parser.add_argument(
+        "--useformat",
+        action="store_true",
+        help="If true context will follow format user:<question>\nassistant:<response>",
+    )
+    parser.add_argument(
         "--temperature",
         type=float,
         default=0.8,
@@ -128,6 +133,11 @@ def main():
         help="Maximum tokens to generate per response (default: 200)",
     )
     args = parser.parse_args()
+
+    if args.useformat:
+        print(f"using assistant format")
+    else:
+        print(f"using plain text format")
 
     # Setup device
     device = get_device()
@@ -187,7 +197,11 @@ def main():
             break
 
         # Format as conversation turn
-        user_turn = f"user: {user_input}\nassistant: "
+        user_turn = ""
+        if args.useformat:
+            user_turn = f"user: {user_input}\nassistant: "
+        else:
+            user_turn = f"{user_input}\n"
 
         # Tokenize the new user turn
         user_tokens = enc.encode_ordinary(user_turn)
