@@ -1,100 +1,82 @@
 """
 Natural Questions dataset (sentence-transformers version)
 https://huggingface.co/datasets/sentence-transformers/natural-questions
-Downloads and tokenizes the data and saves data shards to disk.
+Downloads and tokenizes the data and saves to disk.
 Run simply as:
 $ python natural-questions.py
-Will save shards to the local directory "natural_questions".
+
+Dataset info: 100k question-answer pairs
+Will save tokens to "natural_questions" directory as train.npy and val.npy
+Follows a format of user: <some question>\nassistant: <some answer>
 """
 
-import multiprocessing as mp
 import os
-import sys
-
 import numpy as np
 import tiktoken
-from datasets import load_dataset  # pip install datasets
-from tqdm import tqdm  # pip install tqdm
+from datasets import load_dataset
+from tqdm import tqdm
 
 # ------------------------------------------
-local_dir = "natural_questions"
-shard_size = int(1e8)  # 100M tokens per shard
+local_dir = "tune_natural_questions"
+val_split_ratio = 0.01  # Use 1% for validation (1000 examples)
 
-# create the cache the local directory if it doesn't exist yet
+# create the local directory if it doesn't exist yet
 DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), local_dir)
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
-
-# download the dataset
-print("Loading Natural Questions dataset (sentence-transformers version, streaming mode)...")
-nq = load_dataset("sentence-transformers/natural-questions", split="train", streaming=True)
-
-print(f"\nDataset loaded successfully!")
-print(f"\nDataset features: {nq.features}")
 
 # init the tokenizer
 enc = tiktoken.get_encoding("gpt2")
 eot = enc._special_tokens["<|endoftext|>"]  # end of text token
 
-def format_tokenize(doc):
-    return tokenize(format(doc))
-
 def format(doc):
+    """Format a question-answer pair as a conversational prompt"""
     return f"user: {doc['query']}\nassistant: {doc['answer']}"
 
-def tokenize(doc):
-    # tokenizes a single document and returns a numpy array of uint16 tokens
+def tokenize(text):
+    """Tokenizes a text string and returns a numpy array of uint16 tokens"""
     tokens = [eot]  # the special <|endoftext|> token delimits all documents
-    tokens.extend(enc.encode_ordinary(doc))
-    tokens_np = np.array(tokens)
+    tokens.extend(enc.encode_ordinary(text))
+    tokens_np = np.array(tokens, dtype=np.uint16)
     assert (0 <= tokens_np).all() and (tokens_np < 2**16).all(), (
         "token dictionary too large for uint16"
     )
-    tokens_np_uint16 = tokens_np.astype(np.uint16)
-    return tokens_np_uint16
+    return tokens_np
 
+# Load the dataset (non-streaming to get all data at once)
+print("Loading Natural Questions dataset (100k examples)...")
+nq = load_dataset("sentence-transformers/natural-questions", split="train")
+print(f"Dataset loaded: {len(nq)} examples")
 
-def write_datafile(filename, tokens_np):
-    np.save(filename, tokens_np)
+# Calculate split point
+val_size = int(len(nq) * val_split_ratio)
+train_size = len(nq) - val_size
+print(f"Split: {train_size} train, {val_size} validation")
 
-# tokenize all documents and write output shards, each of shard_size tokens (last shard has remainder)
-nprocs = max(1, os.cpu_count() // 2)
-with mp.Pool(nprocs) as pool:
-    shard_index = 0
-    # preallocate buffer to hold current shard
-    all_tokens_np = np.empty((shard_size,), dtype=np.uint16)
-    token_count = 0
-    progress_bar = None
-    for tokens in pool.imap(format_tokenize, nq, chunksize=16):
-        # is there enough space in the current shard for the new tokens?
-        if token_count + len(tokens) < shard_size:
-            # simply append tokens to current shard
-            all_tokens_np[token_count : token_count + len(tokens)] = tokens
-            token_count += len(tokens)
-            # update progress bar
-            if progress_bar is None:
-                progress_bar = tqdm(
-                    total=shard_size, unit="tokens", desc=f"Shard {shard_index}"
-                )
-            progress_bar.update(len(tokens))
-        else:
-            # write the current shard and start a new one
-            split = "val" if shard_index == 0 else "train"
-            filename = os.path.join(
-                DATA_CACHE_DIR, f"edufineweb_{split}_{shard_index:06d}"
-            )
-            # split the document into whatever fits in this shard; the remainder goes to next one
-            remainder = shard_size - token_count
-            progress_bar.update(remainder)
-            all_tokens_np[token_count : token_count + remainder] = tokens[:remainder]
-            write_datafile(filename, all_tokens_np)
-            shard_index += 1
-            progress_bar = None
-            # populate the next shard with the leftovers of the current doc
-            all_tokens_np[0 : len(tokens) - remainder] = tokens[remainder:]
-            token_count = len(tokens) - remainder
+# Process all examples
+print("\nTokenizing all examples...")
+all_tokens = []
+for idx, example in enumerate(tqdm(nq, desc="Processing")):
+    formatted_text = format(example)
+    tokens = tokenize(formatted_text)
+    all_tokens.append(tokens)
 
-    # write any remaining tokens as the last shard
-    if token_count != 0:
-        split = "val" if shard_index == 0 else "train"
-        filename = os.path.join(DATA_CACHE_DIR, f"edufineweb_{split}_{shard_index:06d}")
-        write_datafile(filename, all_tokens_np[:token_count])
+# Concatenate all tokens
+print("\nConcatenating tokens...")
+train_tokens = np.concatenate(all_tokens[:train_size])
+val_tokens = np.concatenate(all_tokens[train_size:])
+
+print(f"\nTrain tokens: {len(train_tokens):,}")
+print(f"Validation tokens: {len(val_tokens):,}")
+print(f"Total tokens: {len(train_tokens) + len(val_tokens):,}")
+
+# Save to disk
+train_filename = os.path.join(DATA_CACHE_DIR, "train.npy")
+val_filename = os.path.join(DATA_CACHE_DIR, "val.npy")
+
+print(f"\nSaving train data to {train_filename}...")
+np.save(train_filename, train_tokens)
+
+print(f"Saving validation data to {val_filename}...")
+np.save(val_filename, val_tokens)
+
+print("\nDone! Dataset processed and saved.")
