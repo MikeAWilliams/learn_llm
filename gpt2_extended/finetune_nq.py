@@ -46,7 +46,6 @@ class TrainingConfig:
 
     # Logging and checkpointing
     output_interval: int = 50
-    checkpoint_interval: int = 50
     log_dir: str = "log"
 
     # Data
@@ -81,10 +80,13 @@ class FineTuneLoader:
         self.num_processes = num_processes
 
         self.filename = f"{data_root}/{split}.npy"
+        self.mask_filename = f"{data_root}/{split}_mask.npy"
         self.tokens = load_tokens(self.filename)
+        self.masks = load_tokens(self.mask_filename)
 
         if master_process:
             print(f"file {self.filename} contains {len(self.tokens)} tokens")
+            print(f"file {self.mask_filename} contains {len(self.masks)} mask values")
 
         self.reset()
 
@@ -93,17 +95,20 @@ class FineTuneLoader:
         self.current_position = self.B * self.T * self.process_rank
 
     def next_batch(self):
-        """Get the next batch of data."""
+        """Get the next batch of data with loss mask."""
         B, T = self.B, self.T
         buf = self.tokens[self.current_position : self.current_position + B * T + 1]
+        mask_buf = self.masks[self.current_position : self.current_position + B * T + 1]
         x = (buf[:-1]).view(B, T)  # inputs
         y = (buf[1:]).view(B, T)  # targets
+        # mask for targets (shift by 1 like targets)
+        loss_mask = (mask_buf[1:]).view(B, T)  # mask aligned with targets
         # advance the position in the tensor
         self.current_position += B * T * self.num_processes
         # if loading the next batch would be out of bounds wrap
         if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
             self.reset()
-        return x, y
+        return x, y, loss_mask
 
 
 # -----------------------------------------------------------------------------
@@ -226,10 +231,10 @@ def evaluate_validation(model, val_loader, device, ddp, master_process, log_file
         val_loss_accum = 0.0
         val_loss_steps = 20
         for _ in range(val_loss_steps):
-            x, y = val_loader.next_batch()
-            x, y = x.to(device), y.to(device)
+            x, y, loss_mask = val_loader.next_batch()
+            x, y, loss_mask = x.to(device), y.to(device), loss_mask.to(device)
             with torch.autocast(device_type=device, dtype=torch.bfloat16):
-                logits, loss = model(x, y)
+                logits, loss = model(x, y, loss_mask)
             loss = loss / val_loss_steps
             val_loss_accum += loss.detach()
         if ddp:
@@ -327,10 +332,10 @@ def train_step(model, train_loader, optimizer, device, ddp, grad_accum_steps):
     loss_accum = 0.0
 
     for micro_step in range(grad_accum_steps):
-        x, y = train_loader.next_batch()
-        x, y = x.to(device), y.to(device)
+        x, y, loss_mask = train_loader.next_batch()
+        x, y, loss_mask = x.to(device), y.to(device), loss_mask.to(device)
         with torch.autocast(device_type=device, dtype=torch.bfloat16):
-            logits, loss = model(x, y)
+            logits, loss = model(x, y, loss_mask)
         loss = loss / grad_accum_steps
         loss_accum += loss.detach()
         if ddp:
@@ -350,7 +355,6 @@ def main(resume_from):
     config = TrainingConfig()
     # overrides for local testing
     # config.output_interval = 10
-    # config.checkpoint_interval = 10
     # overrides for 80 gpu runs
     # set total batch size as a nice multiple of B * T. Picked 8 so I can run on 1,2,4,8 gpu
     # config.micro_batch_size = 96
@@ -459,7 +463,7 @@ def main(resume_from):
                 model, val_loader, device, ddp, master_process, log_file, step
             )
 
-            if step > 0 and (step % config.checkpoint_interval == 0 or last_step):
+            if last_step:
                 save_checkpoint(
                     raw_model, step, val_loss, config.log_dir, master_process
                 )

@@ -148,7 +148,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, loss_mask=None):
         # idx is of shape (B, T)
         B, T = idx.size()
         assert T <= self.config.block_size, (
@@ -170,7 +170,17 @@ class GPT(nn.Module):
             # view the logits in 2d. Set the second dim to the last size of logits,
             # vocam_size. It figures out the first which will be B*T
             # then flatten out the targes into 1d
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+            if loss_mask is not None:
+                # Apply mask: only compute loss on masked tokens
+                loss = F.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    targets.view(-1),
+                    reduction='none'
+                )
+                loss = loss.view(B, T)  # reshape to (B, T)
+                loss = (loss * loss_mask.float()).sum() / loss_mask.float().sum()
+            else:
+                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
         return logits, loss
 
     @classmethod
