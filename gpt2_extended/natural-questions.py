@@ -35,11 +35,16 @@ print(f"\nDataset features: {nq.features}")
 enc = tiktoken.get_encoding("gpt2")
 eot = enc._special_tokens["<|endoftext|>"]  # end of text token
 
+def format_tokenize(doc):
+    return tokenize(format(doc))
+
+def format(doc):
+    return f"user: {doc['query']}\nassistant: {doc['answer']}"
 
 def tokenize(doc):
     # tokenizes a single document and returns a numpy array of uint16 tokens
     tokens = [eot]  # the special <|endoftext|> token delimits all documents
-    tokens.extend(enc.encode_ordinary(doc["text"]))
+    tokens.extend(enc.encode_ordinary(doc))
     tokens_np = np.array(tokens)
     assert (0 <= tokens_np).all() and (tokens_np < 2**16).all(), (
         "token dictionary too large for uint16"
@@ -51,7 +56,6 @@ def tokenize(doc):
 def write_datafile(filename, tokens_np):
     np.save(filename, tokens_np)
 
-
 # tokenize all documents and write output shards, each of shard_size tokens (last shard has remainder)
 nprocs = max(1, os.cpu_count() // 2)
 with mp.Pool(nprocs) as pool:
@@ -60,7 +64,7 @@ with mp.Pool(nprocs) as pool:
     all_tokens_np = np.empty((shard_size,), dtype=np.uint16)
     token_count = 0
     progress_bar = None
-    for tokens in pool.imap(tokenize, fw, chunksize=16):
+    for tokens in pool.imap(format_tokenize, nq, chunksize=16):
         # is there enough space in the current shard for the new tokens?
         if token_count + len(tokens) < shard_size:
             # simply append tokens to current shard
