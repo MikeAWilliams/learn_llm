@@ -38,15 +38,15 @@ class TrainingConfig:
     # Learning rate schedule
     max_lr: float = 6e-4
     min_lr_ratio: float = 0.1
-    warmup_steps: int = 715
-    max_steps: int = 19073
+    warmup_steps: int = 15
+    max_steps: int = 150
 
     # Optimizer parameters
     weight_decay: float = 0.1
 
     # Logging and checkpointing
-    output_interval: int = 100
-    checkpoint_interval: int = 5000
+    output_interval: int = 50
+    checkpoint_interval: int = 50
     log_dir: str = "log"
 
     # Data
@@ -68,34 +68,28 @@ def load_tokens(filename):
     return ptt
 
 
-class DataLoaderLite:
-    """Lightweight data loader for training and validation."""
+class FineTuneLoader:
+    """Data loader for fine tuning data training and validation."""
 
     def __init__(
         self, B, T, process_rank, num_processes, split, data_root, master_process
     ):
+        assert split in {"train", "val"}
         self.B = B
         self.T = T
         self.process_rank = process_rank
         self.num_processes = num_processes
 
-        assert split in {"train", "val"}
-        # get the shard filenames
-        shards = os.listdir(data_root)
-        shards = [s for s in shards if split in s]
-        shards = sorted(shards)
-        shards = [os.path.join(data_root, s) for s in shards]
-        self.shards = shards
-        assert len(shards) > 0, f"no shards found for split {split}"
+        self.filename = f"{data_root}/{split}.npy"
+        self.tokens = load_tokens(self.filename)
 
         if master_process:
-            print(f"found {len(self.shards)} shards for split {split}")
+            print(f"file {self.filename} contains {len(self.tokens)} tokens")
+
         self.reset()
 
     def reset(self):
         """Reset to the beginning of the dataset."""
-        self.current_shard = 0
-        self.tokens = load_tokens(self.shards[self.current_shard])
         self.current_position = self.B * self.T * self.process_rank
 
     def next_batch(self):
@@ -106,11 +100,9 @@ class DataLoaderLite:
         y = (buf[1:]).view(B, T)  # targets
         # advance the position in the tensor
         self.current_position += B * T * self.num_processes
-        # if loading the next batch would be out of bounds, advance to the next shard
+        # if loading the next batch would be out of bounds wrap
         if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
-            self.current_shard = (self.current_shard + 1) % len(self.shards)
-            self.tokens = load_tokens(self.shards[self.current_shard])
-            self.current_position = self.B * self.T * self.process_rank
+            self.reset()
         return x, y
 
 
@@ -381,7 +373,7 @@ def main(resume_from):
         print(f"total desired batch size: {config.total_batch_size}")
         print(f"=> calculated gradient accumulation steps: {grad_accum_steps}")
 
-    train_loader = DataLoaderLite(
+    train_loader = FineTuneLoader(
         B=B,
         T=T,
         process_rank=ddp_rank,
@@ -390,7 +382,7 @@ def main(resume_from):
         data_root=config.data_root,
         master_process=master_process,
     )
-    val_loader = DataLoaderLite(
+    val_loader = FineTuneLoader(
         B=B,
         T=T,
         process_rank=ddp_rank,
