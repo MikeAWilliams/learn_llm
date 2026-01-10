@@ -134,7 +134,6 @@ def main():
     print(f"Using device: {device}")
 
     # Load checkpoint
-    print(f"Loading checkpoint from {args.checkpoint}...")
     checkpoint_data = load_checkpoint(args.checkpoint, device)
 
     # Create model
