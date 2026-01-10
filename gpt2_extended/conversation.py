@@ -141,7 +141,19 @@ def main():
     model_config = checkpoint_data["config"]
     model = GPT(model_config)
     model.to(device)
-    model.load_state_dict(checkpoint_data["model"])
+
+    # Handle state dict with different prefixes (_orig_mod., module., etc.)
+    state_dict = checkpoint_data["model"]
+
+    # Remove _orig_mod. prefix if present (from torch.compile)
+    if any(key.startswith("_orig_mod.") for key in state_dict.keys()):
+        state_dict = {key.replace("_orig_mod.", ""): value for key, value in state_dict.items()}
+
+    # Remove module. prefix if present (from DDP)
+    if any(key.startswith("module.") for key in state_dict.keys()):
+        state_dict = {key.replace("module.", ""): value for key, value in state_dict.items()}
+
+    model.load_state_dict(state_dict)
     model.eval()
 
     print(f"Model loaded successfully!")
