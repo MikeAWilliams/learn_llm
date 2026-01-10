@@ -311,11 +311,11 @@ def generate_samples(model, device, ddp_rank, enc, master_process):
             print(f"rank {ddp_rank} sample {i}: {decoded}")
 
 
-def save_checkpoint(raw_model, step, val_loss, log_dir, master_process):
+def save_checkpoint(raw_model, step, val_loss, log_dir, master_process, base_checkpoint_name):
     """Save model checkpoint."""
     if master_process:
         print("saving weights")
-        checkpoint_path = os.path.join(log_dir, f"model_{step:05d}.pt")
+        checkpoint_path = os.path.join(log_dir, f"{base_checkpoint_name}-nq_{step:05d}.pt")
         checkpoint = {
             "model": raw_model.state_dict(),
             "config": raw_model.config,
@@ -402,10 +402,15 @@ def main(resume_from):
     checkpoint_data = None
     checkpoint_data = load_checkpoint(resume_from, device)
     model_config = checkpoint_data["config"]
+
+    # Extract base checkpoint name from resume_from path (e.g., "model_19072" from "log/model_19072.pt")
+    base_checkpoint_name = os.path.splitext(os.path.basename(resume_from))[0]
+
     if master_process:
         print(
             f"Loaded model config from checkpoint: vocab_size={model_config.vocab_size}"
         )
+        print(f"Base checkpoint name: {base_checkpoint_name}")
 
     model = GPT(model_config)
     model.to(device)
@@ -465,7 +470,7 @@ def main(resume_from):
 
             if last_step:
                 save_checkpoint(
-                    raw_model, step, val_loss, config.log_dir, master_process
+                    raw_model, step, val_loss, config.log_dir, master_process, base_checkpoint_name
                 )
 
         if step % config.output_interval == 0 or last_step:
