@@ -14,8 +14,20 @@ The original code has been copied and will be modified, extended, and played wit
 ## Project Structure
 
 - `train_gpt2.py` - Main GPT-2 training script with model architecture implementation
+- `finetune_nq.py` - Script for fine-tuning the model on the Natural Questions dataset
 - `fineweb.py` - Dataset preparation script for FineWeb-Edu dataset tokenization and processing
 - `hellaswag.py` - HellaSwag benchmark evaluation script for testing model performance
+- `generate.py` - Script for generating text using the trained model
+- `conversation.py` - Script for generating conversational responses using the trained model
+- `conversation_hf.py` - Script for generating conversational responses using the trained model from Hugging Face Transformers
+- `huggingface_load.py` - Script for loading the model from Hugging Face Transformers
+- `model.py` - Model architecture implementation
+- `natural-questions.py` - Script for fine-tuning the model on the Natural Questions dataset
+- `util.py` - Utility functions for data processing and model training
+
+## Results
+
+Final weights and simple examples found at https://huggingface.co/mikeawilliams/gpt2/tree/main
 
 ## Installation
 
