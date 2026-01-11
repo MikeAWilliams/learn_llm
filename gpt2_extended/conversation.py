@@ -216,7 +216,6 @@ def main():
             # Drop from the beginning, but try to keep conversation boundaries
             tokens_to_drop = len(conversation_tokens) - max_context
             conversation_tokens = conversation_tokens[tokens_to_drop:]
-            print("[Context window full - dropped earliest messages]")
 
         # Generate response
         print("Assistant: ", end="", flush=True)
